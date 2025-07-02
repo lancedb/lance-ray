@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -42,7 +42,7 @@ class LanceDatasource(Datasource):
         if filter is not None:
             self.scanner_options["filter"] = filter
         self.storage_options = storage_options
-        self.lance_ds: "lance.LanceDataset" = lance.dataset(uri=uri, storage_options=storage_options)
+        self.lance_ds: lance.LanceDataset = lance.dataset(uri=uri, storage_options=storage_options)
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
@@ -63,7 +63,7 @@ class LanceDatasource(Datasource):
             fragment_ids = [f.metadata.id for f in fragments]
             num_rows = sum(f.count_rows() for f in fragments)
             input_files = [
-                data_file.path() for f in fragments for data_file in f.data_files()
+                data_file.path for f in fragments for data_file in f.data_files()
             ]
 
             # TODO(chengsu): Take column projection into consideration for schema.
@@ -77,10 +77,10 @@ class LanceDatasource(Datasource):
 
             # Create bound variables to avoid loop variable binding issues
             def create_read_task(
-                fragment_ids: list[int], 
-                lance_ds: "lance.LanceDataset", 
-                scanner_options: dict[str, Any], 
-                retry_params: dict[str, Any], 
+                fragment_ids: list[int],
+                lance_ds: "lance.LanceDataset",
+                scanner_options: dict[str, Any],
+                retry_params: dict[str, Any],
                 metadata: BlockMetadata
             ) -> ReadTask:
                 return ReadTask(

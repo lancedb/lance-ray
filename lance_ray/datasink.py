@@ -135,9 +135,9 @@ class _BaseLanceDatasink(Datasink):
         schema = None
         for batch in write_results:
             for fragment_str, schema_str in batch:
-                fragment = pickle.loads(fragment_str.encode())
+                fragment = pickle.loads(fragment_str)
                 fragments.append(fragment)
-                schema = pickle.loads(schema_str.encode())
+                schema = pickle.loads(schema_str)
         # Check weather writer has fragments or not.
         # Skip commit when there are no fragments.
         if not schema:
