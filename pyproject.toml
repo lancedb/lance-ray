@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lance-ray"
+version = "0.0.1"
+description = "Ray integration for Lance columnar format"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Lance Ray Team", email = "team@lance-ray.dev"},
+]
+keywords = ["ray", "lance", "distributed", "columnar", "data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "ray[default]>=2.40.0",
+    "pylance>=0.30.0",
+    "pyarrow>=17.0.0",
+    "pandas>=2.2.0",
+    "numpy>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-xdist>=3.6.0",
+    "ruff>=0.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/lancedb/lance-ray"
+Repository = "https://github.com/lancedb/lance-ray"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lance_ray*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["lance_ray", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "UP045"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--cov=lance_ray", "--cov-report=term-missing"]
+
+[tool.coverage.run]
+source = ["lance_ray"]
+omit = ["*/tests/*", "*/__init__.py"] 
