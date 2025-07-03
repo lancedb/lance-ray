@@ -28,18 +28,18 @@ uv pip install -e ".[dev]"
 
 ## Requirements
 
-- Python >= 3.8
-- Ray > 2.41
-- PyLance (latest version)
-- PyArrow >= 12.0.0
-- Pandas >= 1.5.0
-- NumPy >= 1.21.0
+- Python >= 3.10
+- Ray >= 2.40.0
+- PyLance >= 0.30.0
+- PyArrow >= 17.0.0
+- Pandas >= 2.2.0
+- NumPy >= 2.0.0
 
 ## Quick Start
 
 ```python
 import ray
-from lance_ray import read_lance, write_lance, LanceRayDataset
+from lance_ray import read_lance, write_lance
 
 # Initialize Ray
 ray.init()
@@ -50,11 +50,8 @@ data = ray.data.range(1000).map(lambda x: {"id": x, "value": x * 2})
 # Write to Lance format
 write_lance(data, "my_dataset.lance")
 
-# Read Lance dataset
-lance_dataset = read_lance("my_dataset.lance")
-
-# Convert to Ray dataset for distributed processing
-ray_dataset = lance_dataset.to_ray_dataset()
+# Read Lance dataset back as Ray dataset
+ray_dataset = read_lance("my_dataset.lance")
 
 # Perform distributed operations
 result = ray_dataset.filter(lambda row: row["value"] > 100).count()
@@ -63,67 +60,110 @@ print(f"Filtered count: {result}")
 
 ## API Reference
 
-### Core Classes
-
-#### `LanceRayDataset`
-
-Main class for Ray-integrated Lance datasets.
-
-```python
-dataset = LanceRayDataset("path/to/dataset")
-
-# Convert to Ray dataset
-ray_data = dataset.to_ray_dataset()
-
-# Read as pandas DataFrame
-df = dataset.read_pandas()
-
-# Get schema information
-schema = dataset.schema()
-row_count = dataset.count_rows()
-
-# Filter and select operations
-filtered = dataset.filter("age > 30")
-selected = dataset.select(["id", "name"])
-```
-
 ### I/O Functions
 
-#### `read_lance(uri, columns=None, filter=None, **kwargs)`
+#### `read_lance(uri, *, columns=None, filter=None, storage_options=None, **kwargs)`
 
-Read a Lance dataset with optional column selection and filtering.
+Read a Lance dataset and return a Ray Dataset.
 
-#### `write_lance(data, uri, mode="create", **kwargs)`
+**Parameters:**
+- `uri`: The URI of the Lance dataset to read from
+- `columns`: Optional list of column names to read
+- `filter`: Optional filter expression to apply
+- `storage_options`: Optional storage configuration dictionary
+- `scanner_options`: Optional scanner configuration dictionary
+- `ray_remote_args`: Optional kwargs for Ray remote tasks
+- `concurrency`: Optional maximum number of concurrent Ray tasks
+- `override_num_blocks`: Optional override for number of output blocks
 
-Write Ray dataset, Arrow table, or pandas DataFrame to Lance format.
+**Returns:** Ray Dataset
 
-- `mode`: "create", "append", or "overwrite"
+#### `write_lance(ds, path, *, schema=None, mode="create", **kwargs)`
 
-#### `read_lance_distributed(uri, num_partitions=None, **kwargs)`
+Write a Ray Dataset to Lance format.
 
-Read Lance dataset in a distributed manner across Ray workers.
+**Parameters:**
+- `ds`: Ray Dataset to write
+- `path`: Path to the destination Lance dataset
+- `schema`: Optional PyArrow schema
+- `mode`: Write mode - "create", "append", or "overwrite"
+- `min_rows_per_file`: Minimum rows per file (default: 1024 * 1024)
+- `max_rows_per_file`: Maximum rows per file (default: 64 * 1024 * 1024)
+- `data_storage_version`: Optional data storage version
+- `storage_options`: Optional storage configuration dictionary
+- `ray_remote_args`: Optional kwargs for Ray remote tasks
+- `concurrency`: Optional maximum number of concurrent Ray tasks
 
-### Utility Functions
-
-#### `create_lance_from_ray(ray_dataset, uri, **kwargs)`
-
-Create a Lance dataset from a Ray dataset.
-
-#### `get_dataset_info(dataset)`
-
-Get comprehensive information about a Lance dataset.
-
-#### `validate_schema_compatibility(ray_schema, lance_schema)`
-
-Validate schema compatibility between Ray and Lance datasets.
+**Returns:** None
 
 ## Examples
+
+### Basic Usage
+
+```python
+import pandas as pd
+import ray
+from lance_ray import read_lance, write_lance
+
+# Initialize Ray
+ray.init()
+
+# Create sample data
+sample_data = {
+    "user_id": range(100),
+    "name": [f"User_{i}" for i in range(100)],
+    "age": [20 + (i % 50) for i in range(100)],
+    "score": [50.0 + (i % 100) * 0.5 for i in range(100)],
+}
+df = pd.DataFrame(sample_data)
+
+# Create Ray dataset
+ds = ray.data.from_pandas(df)
+
+# Write to Lance format
+write_lance(ds, "sample_dataset.lance")
+
+# Read Lance dataset back
+ds = read_lance("sample_dataset.lance")
+
+# Perform distributed operations
+filtered_ds = ds.filter(lambda row: row["age"] > 30)
+print(f"Filtered count: {filtered_ds.count()}")
+
+# Read with column selection and filtering
+ds_filtered = read_lance(
+    "sample_dataset.lance",
+    columns=["user_id", "name", "score"],
+    filter="score > 75.0"
+)
+print(f"Schema: {ds_filtered.schema()}")
+```
+
+### Advanced Usage
+
+```python
+# Write with custom options
+write_lance(
+    ds,
+    "dataset.lance",
+    mode="overwrite",
+    min_rows_per_file=1000,
+    max_rows_per_file=50000,
+    data_storage_version="stable"
+)
+
+# Read with storage options and concurrency control
+ds = read_lance(
+    "s3://bucket/dataset.lance",
+    storage_options={"aws_access_key_id": "...", "aws_secret_access_key": "..."},
+    concurrency=10,
+    ray_remote_args={"num_cpus": 2}
+)
+```
 
 See the `examples/` directory for more comprehensive usage examples:
 
 - `basic_usage.py`: Basic Ray-Lance integration workflow
-- `distributed_processing.py`: Advanced distributed processing patterns
-- `performance_optimization.py`: Performance optimization techniques
 
 ## Development
 
@@ -137,8 +177,6 @@ cd lance-ray
 # Install in development mode
 uv pip install -e ".[dev]"
 
-# Install pre-commit hooks
-uv run pre-commit install
 ```
 
 ### Running Tests
@@ -150,11 +188,6 @@ uv run pytest
 # Run with coverage
 uv run pytest --cov=lance_ray
 
-# Run specific test categories
-uv run pytest -m unit          # Unit tests only
-uv run pytest -m integration   # Integration tests only
-uv run pytest -m slow          # Slow tests only
-```
 
 ### Code Quality
 
