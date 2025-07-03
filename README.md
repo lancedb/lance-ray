@@ -45,7 +45,7 @@ from lance_ray import read_lance, write_lance
 ray.init()
 
 # Create a Ray dataset
-data = ray.data.range(1000).map(lambda x: {"id": x, "value": x * 2})
+data = ray.data.range(1000).map(lambda row: {"id": row["id"], "value": row["id"] * 2})
 
 # Write to Lance format
 write_lance(data, "my_dataset.lance")
