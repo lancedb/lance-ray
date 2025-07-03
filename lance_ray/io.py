@@ -2,7 +2,7 @@
 I/O operations for Lance-Ray integration.
 """
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 import pyarrow as pa
 from ray.data import Dataset, read_datasource
@@ -18,7 +18,7 @@ def read_lance(
     filter: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
     scanner_options: Optional[dict[str, Any]] = None,
-    ray_remote_args: Optional[Dict[str, Any]] = None,
+    ray_remote_args: Optional[dict[str, Any]] = None,
     concurrency: Optional[int] = None,
     override_num_blocks: Optional[int] = None,
 ) -> Dataset:
