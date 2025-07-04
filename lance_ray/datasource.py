@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -26,23 +26,20 @@ class LanceDatasource(Datasource):
     def __init__(
         self,
         uri: str,
-        columns: Optional[list[str]] = None,
+        columns: Optional[List[str]] = None,
         filter: Optional[str] = None,
         storage_options: Optional[dict[str, str]] = None,
         scanner_options: Optional[dict[str, Any]] = None,
     ):
         _check_import(self, module="lance", package="pylance")
 
-        import lance
-
-        self.uri = uri
-        self.scanner_options = scanner_options or {}
+        self._uri = uri
+        self._scanner_options = scanner_options or {}
         if columns is not None:
-            self.scanner_options["columns"] = columns
+            self._scanner_options["columns"] = columns
         if filter is not None:
-            self.scanner_options["filter"] = filter
-        self.storage_options = storage_options
-        self.lance_ds: lance.LanceDataset = lance.dataset(uri=uri, storage_options=storage_options)
+            self._scanner_options["filter"] = filter
+        self._storage_options = storage_options
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
@@ -54,16 +51,38 @@ class LanceDatasource(Datasource):
             "max_backoff_s": self.READ_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
         }
 
-    def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
+        self._lance_ds = None
+        self._fragments = None
+
+    @property
+    def lance_dataset(self) -> "lance.LanceDataset":
+        if self._lance_ds is None:
+            import lance
+            self._lance_ds = lance.dataset(uri=self._uri, storage_options=self._storage_options)
+        return self._lance_ds
+    
+    @property
+    def fragments(self) -> List["lance.LanceFragment"]:
+        if self._fragments is None:
+            self._fragments = self.lance_dataset.get_fragments() or []
+        return self._fragments
+
+    def get_read_tasks(self, parallelism: int) -> List[ReadTask]:
+        if not self.fragments:
+            return []
+            
         read_tasks = []
-        for fragments in np.array_split(self.lance_ds.get_fragments(), parallelism):
-            if len(fragments) <= 0:
+        
+        for fragments in np.array_split(self.fragments, parallelism):
+            if len(fragments) == 0:
                 continue
 
             fragment_ids = [f.metadata.id for f in fragments]
             num_rows = sum(f.count_rows() for f in fragments)
             input_files = [
-                data_file.path for f in fragments for data_file in f.data_files()
+                data_file.path 
+                for fragment in fragments 
+                for data_file in fragment.data_files()
             ]
 
             # TODO(chengsu): Take column projection into consideration for schema.
@@ -75,42 +94,30 @@ class LanceDatasource(Datasource):
                 exec_stats=None,
             )
 
-            # Create bound variables to avoid loop variable binding issues
-            def create_read_task(
-                fragment_ids: list[int],
-                lance_ds: "lance.LanceDataset",
-                scanner_options: dict[str, Any],
-                retry_params: dict[str, Any],
-                metadata: BlockMetadata
-            ) -> ReadTask:
-                return ReadTask(
-                    lambda: _read_fragments_with_retry(
-                        fragment_ids,
-                        lance_ds,
-                        scanner_options,
-                        retry_params,
-                    ),
-                    metadata,
-                )
-
-            read_task = create_read_task(
-                fragment_ids,
-                self.lance_ds,
-                self.scanner_options,
-                self._retry_params,
+            read_task = ReadTask(
+                lambda fids=fragment_ids, lance_ds=self.lance_dataset, scanner_options=self._scanner_options, retry_params=self._retry_params: 
+                _read_fragments_with_retry(fids, lance_ds, scanner_options, retry_params),
                 metadata,
             )
+            
             read_tasks.append(read_task)
 
         return read_tasks
 
     def estimate_inmemory_data_size(self) -> Optional[int]:
-        # TODO(chengsu): Add memory size estimation to improve auto-tune of parallelism.
-        return None
+        if not self.fragments:
+            return 0
+        
+        return sum(
+            data_file.file_size_bytes
+            for fragment in self.fragments
+            for data_file in fragment.data_files()
+            if data_file.file_size_bytes is not None
+        )
 
 
 def _read_fragments_with_retry(
-    fragment_ids: list[int],
+    fragment_ids: List[int],
     lance_ds: "lance.LanceDataset",
     scanner_options: dict[str, Any],
     retry_params: dict[str, Any],
@@ -122,7 +129,7 @@ def _read_fragments_with_retry(
 
 
 def _read_fragments(
-    fragment_ids: list[int],
+    fragment_ids: List[int],
     lance_ds: "lance.LanceDataset",
     scanner_options: dict[str, Any],
 ) -> Iterator[pa.Table]:
