@@ -134,6 +134,13 @@ class TestReadLance:
         assert len(df) == 3
         assert all(df["age"] >= 35)
 
+    def test_read_lance_filter_and_count(self, lance_dataset_path):
+        """Test reading filter and count."""
+        dataset = lr.read_lance(
+            lance_dataset_path, columns=["name", "age"], filter="age >= 35"
+        )
+        assert dataset.count() == 3
+
     def test_read_lance_nonexistent_path(self):
         """Test reading from non-existent path."""
         with pytest.raises((FileNotFoundError, OSError, Exception)):

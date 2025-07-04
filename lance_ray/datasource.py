@@ -77,8 +77,15 @@ class LanceDatasource(Datasource):
             if len(fragments) == 0:
                 continue
 
+            # Use scanner.count_rows with filter to count rows meeting specified conditions
+            scanner_options = self._scanner_options.copy()
+            scanner_options["fragments"] = fragments
+            scanner_options["columns"] = []
+            scanner_options["with_row_id"] = True
+            scanner = self._lance_ds.scanner(**scanner_options)
+            num_rows = scanner.count_rows()
+
             fragment_ids = [f.metadata.id for f in fragments]
-            num_rows = sum(f.count_rows() for f in fragments)
             input_files = [
                 data_file.path 
                 for fragment in fragments 
