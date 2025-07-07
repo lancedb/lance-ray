@@ -1,0 +1,36 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: 1
+appendOnly: true
+# Labels are applied based on conventional commits standard
+# https://www.conventionalcommits.org/en/v1.0.0/
+# These labels are later used in release notes. See .github/release.yml
+labels:
+# If the PR title has an ! before the : it will be considered a breaking change
+# For example, `feat!: add new feature` will be considered a breaking change
+- label: breaking-change
+  title: "^[^:]+!:.*"
+- label: breaking-change
+  body: "BREAKING CHANGE"
+- label: enhancement
+  title: "^feat(\\(.+\\))?!?:.*"
+- label: bug
+  title: "^fix(\\(.+\\))?!?:.*"
+- label: documentation
+  title: "^docs(\\(.+\\))?!?:.*"
+- label: performance
+  title: "^perf(\\(.+\\))?!?:.*"
+- label: ci
+  title: "^ci(\\(.+\\))?!?:.*"
+- label: chore
+  title: "^(chore|test|build|style)(\\(.+\\))?!?:.*"
