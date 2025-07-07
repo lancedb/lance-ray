@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -26,7 +26,7 @@ class LanceDatasource(Datasource):
     def __init__(
         self,
         uri: str,
-        columns: Optional[List[str]] = None,
+        columns: Optional[list[str]] = None,
         filter: Optional[str] = None,
         storage_options: Optional[dict[str, str]] = None,
         scanner_options: Optional[dict[str, Any]] = None,
@@ -60,19 +60,19 @@ class LanceDatasource(Datasource):
             import lance
             self._lance_ds = lance.dataset(uri=self._uri, storage_options=self._storage_options)
         return self._lance_ds
-    
+
     @property
-    def fragments(self) -> List["lance.LanceFragment"]:
+    def fragments(self) -> list["lance.LanceFragment"]:
         if self._fragments is None:
             self._fragments = self.lance_dataset.get_fragments() or []
         return self._fragments
 
-    def get_read_tasks(self, parallelism: int) -> List[ReadTask]:
+    def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
         if not self.fragments:
             return []
-            
+
         read_tasks = []
-        
+
         for fragments in np.array_split(self.fragments, parallelism):
             if len(fragments) == 0:
                 continue
@@ -87,8 +87,8 @@ class LanceDatasource(Datasource):
 
             fragment_ids = [f.metadata.id for f in fragments]
             input_files = [
-                data_file.path 
-                for fragment in fragments 
+                data_file.path
+                for fragment in fragments
                 for data_file in fragment.data_files()
             ]
 
@@ -102,11 +102,11 @@ class LanceDatasource(Datasource):
             )
 
             read_task = ReadTask(
-                lambda fids=fragment_ids, lance_ds=self.lance_dataset, scanner_options=self._scanner_options, retry_params=self._retry_params: 
+                lambda fids=fragment_ids, lance_ds=self.lance_dataset, scanner_options=self._scanner_options, retry_params=self._retry_params:
                 _read_fragments_with_retry(fids, lance_ds, scanner_options, retry_params),
                 metadata,
             )
-            
+
             read_tasks.append(read_task)
 
         return read_tasks
@@ -114,7 +114,7 @@ class LanceDatasource(Datasource):
     def estimate_inmemory_data_size(self) -> Optional[int]:
         if not self.fragments:
             return 0
-        
+
         return sum(
             data_file.file_size_bytes
             for fragment in self.fragments
@@ -124,7 +124,7 @@ class LanceDatasource(Datasource):
 
 
 def _read_fragments_with_retry(
-    fragment_ids: List[int],
+    fragment_ids: list[int],
     lance_ds: "lance.LanceDataset",
     scanner_options: dict[str, Any],
     retry_params: dict[str, Any],
@@ -136,7 +136,7 @@ def _read_fragments_with_retry(
 
 
 def _read_fragments(
-    fragment_ids: List[int],
+    fragment_ids: list[int],
     lance_ds: "lance.LanceDataset",
     scanner_options: dict[str, Any],
 ) -> Iterator[pa.Table]:
