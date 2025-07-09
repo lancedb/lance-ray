@@ -226,3 +226,32 @@ class TestReadWrite:
         overwritten_dataset = lr.read_lance(str(path))
         overwritten_df = overwritten_dataset.to_pandas()
         assert len(overwritten_df) == 2  # Should have 2 rows after overwrite
+
+
+class TestAddColumns:
+    """Test cases for add_columns function."""
+
+    def test_add_columns_basic(self, sample_dataset, temp_dir):
+        """Test basic add columns functionality."""
+        path = Path(temp_dir) / "add_columns_test.lance"
+        lr.write_lance(sample_dataset, str(path), max_rows_per_file=3)
+
+        def double_score(x: pa.RecordBatch) -> pa.RecordBatch:
+            df = x.to_pandas()
+            return pa.RecordBatch.from_pandas(
+                pd.DataFrame({"new_column": df["score"] * 2}),
+                schema=pa.schema([pa.field("new_column", pa.float64())]),
+            )
+
+        # Add columns
+        lr.add_columns(
+            str(path),
+            transform=double_score,
+            concurrency=2,
+        )
+
+        # Read it back
+        dataset = lr.read_lance(str(path))
+        df = dataset.to_pandas()
+        assert df.columns.tolist() == ["id", "name", "age", "score", "new_column"]
+        assert (df["new_column"] == df["score"] * 2).all()

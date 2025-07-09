@@ -2,13 +2,28 @@
 I/O operations for Lance-Ray integration.
 """
 
-from typing import Any, Literal, Optional
+import pickle
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import pyarrow as pa
+from lance.dataset import LanceDataset, LanceOperation
+from lance.udf import BatchUDF
 from ray.data import Dataset, read_datasource
+from ray.util.multiprocessing import Pool
 
 from .datasink import LanceDatasink
 from .datasource import LanceDatasource
+
+if TYPE_CHECKING:
+    from lance.types import ReaderLike
+
+    TransformType = (
+        dict[str, str]
+        | BatchUDF
+        | ReaderLike
+        | Callable[[pa.RecordBatch], pa.RecordBatch]
+    )
 
 
 def read_lance(
@@ -79,7 +94,7 @@ def read_lance(
 
 def write_lance(
     ds: Dataset,
-    path: str,
+    uri: str,
     *,
     schema: Optional[pa.Schema] = None,
     mode: Literal["create", "append", "overwrite"] = "create",
@@ -102,7 +117,7 @@ def write_lance(
             lr.write_lance(ds, "/tmp/data/")
 
     Args:
-        path: The path to the destination Lance dataset.
+        uri: The path to the destination Lance dataset.
         schema: The schema of the dataset. If not provided, it is inferred from the data.
         mode: The write mode. Can be "create", "append", or "overwrite".
         min_rows_per_file: The minimum number of rows per file.
@@ -114,7 +129,7 @@ def write_lance(
         storage_options: The storage options for the writer. Default is None.
     """
     datasink = LanceDatasink(
-        path,
+        uri,
         schema=schema,
         mode=mode,
         min_rows_per_file=min_rows_per_file,
@@ -128,3 +143,99 @@ def write_lance(
         ray_remote_args=ray_remote_args or {},
         concurrency=concurrency,
     )
+
+
+def _handle_fragment(
+    lance_ds: LanceDataset,
+    transform: "TransformType",
+    read_columns: Optional[list[str]] = None,
+    batch_size: Optional[int] = None,
+    reader_schema: Optional[pa.Schema] = None,
+):
+    """
+    Handle a fragment of a Lance dataset.
+    """
+
+    def func(fragment_id: int):
+        fragment = lance_ds.get_fragment(fragment_id)
+        fragment_meta, schema = fragment.merge_columns(
+            transform, read_columns, batch_size, reader_schema
+        )
+        return pickle.dumps(fragment_meta), pickle.dumps(schema)
+
+    return func
+
+
+def add_columns(
+    uri: str,
+    *,
+    transform: "TransformType",
+    filter: Optional[str] = None,
+    read_columns: Optional[list[str]] = None,
+    reader_schema: Optional[pa.Schema] = None,
+    read_version: Optional[int | str] = None,
+    ray_remote_args: Optional[dict[str, Any]] = None,
+    storage_options: Optional[dict[str, Any]] = None,
+    batch_size: int = 1024,
+    concurrency: Optional[int] = None,
+) -> None:
+    """
+    Add columns to a Lance dataset, currently use ray.util.multiprocessing.Pool to implement it. ray.data API is hard to implement.
+    Example:
+        >>> import lance_ray as lr
+        >>> import pyarrow as pa
+        >>> import pandas as pd
+        >>> ds = ray.data.from_pandas(pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}))
+        >>> lr.write_lance(ds, "/tmp/data/")
+        >>> def double_score(x: pa.RecordBatch) -> pa.RecordBatch:
+        ...     df = x.to_pandas()
+        ...     return pa.RecordBatch.from_pandas(
+        ...         pd.DataFrame({"new_column": df["score"] * 2}),
+        ...         schema=pa.schema([pa.field("new_column", pa.float64())]),
+        ...     )
+        >>> lr.add_columns("/tmp/data/", transform=double_score, concurrency=2)
+    Args:
+        uri: The path to the destination Lance dataset.
+        transform: The transform to apply to the dataset. It support a lot of types, see `LanceDB API doc https://lancedb.github.io/lance-python-doc/data-evolution.html ` for more details.
+        filter: The filter to apply to the dataset. It is not supported yet, will be supported when `get_fragments` support filter see `LanceDB API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset.get_fragments>`_.
+        read_columns: The columns from the original dataset to read.
+        reader_schema: The schema to use for the reader.
+        read_version: The version to read.
+        ray_remote_args: The arguments to pass to the ray remote function.
+        storage_options: The storage options to use for the dataset.
+        batch_size: The batch size to use for the reader.
+        concurrency: The number of processes to use for the pool.
+    """
+    lance_ds = LanceDataset(
+        uri=uri, storage_options=storage_options, version=read_version
+    )
+    fragment_ids = [f.metadata.id for f in lance_ds.get_fragments()]
+    pool = Pool(processes=concurrency, ray_remote_args=ray_remote_args)
+    rst_futures = pool.map_async(
+        _handle_fragment(lance_ds, transform, read_columns, batch_size, reader_schema),
+        fragment_ids,
+        chunksize=1,
+    )
+    result = rst_futures.get()
+    commit_messages = []
+    new_schema = None
+    for fragment_meta, schema in result:
+        commit_messages.append(pickle.loads(fragment_meta))
+        schema = pickle.loads(schema)
+        if new_schema is None:
+            new_schema = schema
+            continue
+        if new_schema != schema:
+            raise ValueError(
+                f"Schema mismatch, previous schema: {new_schema}, new schema: {schema}"
+            )
+    if new_schema is None:
+        raise ValueError("No schema for new fragment found")
+    op = LanceOperation.Merge(commit_messages, new_schema)
+    lance_ds.commit(
+        uri,
+        op,
+        read_version=lance_ds.version,
+        storage_options=storage_options,
+    )
+    pool.close()
