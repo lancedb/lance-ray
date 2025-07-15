@@ -14,6 +14,7 @@ from ray.util.multiprocessing import Pool
 
 from .datasink import LanceDatasink
 from .datasource import LanceDatasource
+from .scanner import RayScannerBuilder
 
 if TYPE_CHECKING:
     from lance.types import ReaderLike
@@ -239,3 +240,18 @@ def add_columns(
         storage_options=storage_options,
     )
     pool.close()
+
+
+def scanner(
+    uri: str,
+    *,
+    storage_options: Optional[dict[str, Any]] = None,
+    ray_remote_args: Optional[dict[str, Any]] = None,
+    concurrency: Optional[int] = None,
+) -> RayScannerBuilder:
+    return RayScannerBuilder(
+        uri,
+        storage_options=storage_options,
+        ray_remote_args=ray_remote_args,
+        concurrency=concurrency,
+    )

@@ -10,10 +10,11 @@ __author__ = "Lance Ray Team"
 __email__ = "team@lance-ray.dev"
 
 # Main imports
-from .io import add_columns, read_lance, write_lance
+from .io import add_columns, read_lance, scanner, write_lance
 
 __all__ = [
     "read_lance",
     "write_lance",
     "add_columns",
+    "scanner",
 ]
