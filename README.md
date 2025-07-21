@@ -20,9 +20,25 @@ Lance-Ray combines the distributed computing capabilities of Ray with the effici
 # Install from source
 git clone https://github.com/lance-ray/lance-ray.git
 cd lance-ray
+
+# if uv is not installed 
+pip install uv
+
+# if 'uv' command is not recognized (especially on windows)
+#then restart your terminal or use:
+#python -m uv pip install -e . 
+
 uv pip install -e .
 
 # Or install with development dependencies
+
+# if 'uv' is not installed 
+pip install uv
+
+# If 'uv' command is still not recognized (especially on Windows),
+# try restarting your terminal or use:
+# python -m uv pip install -e ".[dev]"
+
 uv pip install -e ".[dev]"
 ```
 
