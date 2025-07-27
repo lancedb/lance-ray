@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+import lance
 import lance_ray as lr
 import pandas as pd
 import pyarrow as pa
@@ -255,3 +256,27 @@ class TestAddColumns:
         df = dataset.to_pandas()
         assert df.columns.tolist() == ["id", "name", "age", "score", "new_column"]
         assert (df["new_column"] == df["score"] * 2).all()
+
+
+class TestDatasetOptions:
+    """Test cases for dataset options in LanceDataset."""
+
+    def test_dataset_with_version(self, sample_dataset, temp_dir):
+        """Test dataset options like version and block size."""
+        path = Path(temp_dir) / "dataset_options_test.lance"
+        lr.write_lance(sample_dataset, str(path))
+        lr.write_lance(sample_dataset, str(path), mode="append")
+
+        ds = lance.dataset(str(path))
+        versions = ds.versions()
+        assert len(versions) == 2
+        assert len(ds) == 10
+
+        dataset = lr.read_lance(str(path), dataset_options={
+            "version": versions[0]["version"],
+        })
+        assert dataset.count() == 5
+        dataset = lr.read_lance(str(path), dataset_options={
+            "version": versions[1]["version"],
+        })
+        assert dataset.count() == 10

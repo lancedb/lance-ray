@@ -30,6 +30,7 @@ class LanceDatasource(Datasource):
         filter: Optional[str] = None,
         storage_options: Optional[dict[str, str]] = None,
         scanner_options: Optional[dict[str, Any]] = None,
+        dataset_options: Optional[dict[str, Any]] = None,
     ):
         _check_import(self, module="lance", package="pylance")
 
@@ -40,6 +41,7 @@ class LanceDatasource(Datasource):
         if filter is not None:
             self._scanner_options["filter"] = filter
         self._storage_options = storage_options
+        self._dataset_options = dataset_options or {}
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
@@ -58,7 +60,10 @@ class LanceDatasource(Datasource):
     def lance_dataset(self) -> "lance.LanceDataset":
         if self._lance_ds is None:
             import lance
-            self._lance_ds = lance.dataset(uri=self._uri, storage_options=self._storage_options)
+            dataset_options = self._dataset_options.copy()
+            dataset_options["uri"] = self._uri
+            dataset_options["storage_options"] = self._storage_options
+            self._lance_ds = lance.dataset(**dataset_options)
         return self._lance_ds
 
     @property
