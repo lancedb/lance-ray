@@ -1,20 +1,36 @@
-# LanceDB + Ray Integration Docs
+# Lance-Ray Integration
 
-Welcome to the official documentation for integrating **LanceDB** with **Ray** for scalable vector processing.
+A Python library that provides seamless integration between [Ray](https://www.ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed columnar data processing.
 
-This guide helps you:
+## Overview
 
-- Install LanceDB and Ray
-- Create and manage vector stores using LanceDB
-- Use Ray to scale embedding generation and queries
-- Combine the power of Ray with LanceDB for     distributed applications
+Lance-Ray combines the distributed computing capabilities of Ray with the efficient columnar storage format of Lance, enabling scalable data processing workflows with optimal performance.
 
-## Sections
+## Features
 
-- [Getting Started](getting-started/quick-start.md): Setup and basic usage
-- [Usage](usage.md): Examples, best practices, and advanced features
-- [Contributing](contributing.md): How to contribute to this documentation
+- **Distributed Lance Operations:** Leverage Ray’s distributed computing for Lance dataset operations.
+- **Seamless Data Movement:** Efficiently move data between Ray and Lance datasets.
+- **Optimized I/O:** Fast read and write operations on Lance datasets with Ray integration.
+- **Parallel Processing:** Support for concurrent batch operations on distributed Lance data.
 
----
+## Quick Start
 
-Start by visiting the [Quick Start](getting-started/quick-start.md) guide!
+```python
+
+import ray
+
+from lance_ray import read_lance, write_lance
+
+ray.init()
+
+# Write a pandas DataFrame to Lance format
+import pandas as pd
+
+df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+
+write_lance("example.lance", df)
+
+# Read the dataset back as a Ray Dataset
+ds = read_lance("example.lance")
+
+print(ds.take(3))
