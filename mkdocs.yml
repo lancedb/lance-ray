@@ -2,9 +2,7 @@ site_name: Lance-Ray Documentation
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - API Reference: api_reference.md
+  - Quick Start: quick-start.md
   - Examples: examples.md
-  - Development: development.md
   - Contributing: contributing.md
-  - License: LICENSE.md
+  
