@@ -34,3 +34,4 @@ write_lance("example.lance", df)
 ds = read_lance("example.lance")
 
 print(ds.take(3))
+``` 

@@ -18,4 +18,27 @@ We welcome contributions from the community!
 - Document any new features or changes in the relevant `.md` files.
 - Follow the existing code style and conventions.
 
-Thank you for helping improve Lance-Ray!
+## Development setup
+
+Install the latest development version with all dependencies:
+
+```bash
+git clone https://github.com/<your-username>/lance-ray.git
+cd lance-ray
+pip install -e .[dev]
+```
+# Requirements
+
+- Python >= 3.8
+
+- Ray >= 2.0.0
+
+- Lance >= 0.2.0
+
+# Running Tests
+
+To run all tests using [pytest](https://docs.pytest.org/):
+
+```bash
+pytest
+```
