@@ -16,50 +16,15 @@ Lance-Ray combines the distributed computing capabilities of Ray with the effici
 
 ## Installation
 
-### Basic Installation
 ```bash
-# Clone the repository
-git clone https://github.com/lancedb/lance-ray.git
+# Install from source
+git clone https://github.com/lance-ray/lance-ray.git
 cd lance-ray
-
-### Install UV (if not already installed)
-
-```bash
-pip install uv
-
-# if 'uv' command is not recognized (especially on windows)
-python -m uv pip install -e . 
-
-# Install in editable mode
 uv pip install -e .
-```
 
-### Development Installation (with all dependencies)
-```bash
-# Clone the repository
-git clone https://github.com/lancedb/lance-ray.git
-cd lance-ray
-
-# Install UV (if not already installed)
-pip install uv
-
-# Install with development dependencies
-
+# Or install with development dependencies
 uv pip install -e ".[dev]"
 ```
-
-### Windows Specific Instructions
-```bash
-# If 'uv' command is still not recognized (especially on Windows),
-# try restarting your terminal or use:
-# Basic installation
-python -m uv pip install -e .
-
-# Development installation
-python -m uv pip install -e ".[dev]"
-
-```
-
 
 ## Requirements
 
