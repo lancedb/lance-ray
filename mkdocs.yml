@@ -1,0 +1,8 @@
+site_name: Lance-Ray Documentation
+
+nav:
+  - Home: index.md
+  - Quick Start: quick-start.md
+  - Examples: examples.md
+  - Contributing: contributing.md
+  
