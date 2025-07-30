@@ -33,6 +33,7 @@ def read_lance(
     filter: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
     scanner_options: Optional[dict[str, Any]] = None,
+    dataset_options: Optional[dict[str, Any]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
     concurrency: Optional[int] = None,
     override_num_blocks: Optional[int] = None,
@@ -60,7 +61,10 @@ def read_lance(
             endpoint, etc. For more information, see `Object Store Configuration <https://lancedb.github.io/lance/guide/object_store/>`_.
         scanner_options: Additional options to configure the `LanceDataset.scanner()`
             method, such as `batch_size`. For more information,
-            see `LanceDB API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset.scanner>`_
+            see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset.scanner>`_
+        dataset_options: Additional options to configure the `LanceDataset` instance.
+            This can include options like `version`, `block_size`, etc. For more
+            information, see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset>`_.
         ray_remote_args: kwargs passed to :func:`ray.remote` in the read tasks.
         concurrency: The maximum number of Ray tasks to run concurrently. Set this
             to control number of tasks to run concurrently. This doesn't change the
@@ -80,6 +84,7 @@ def read_lance(
         filter=filter,
         storage_options=storage_options,
         scanner_options=scanner_options,
+        dataset_options=dataset_options,
     )
 
     return read_datasource(
