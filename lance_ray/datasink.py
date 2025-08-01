@@ -4,6 +4,7 @@ from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
+    List,
     Literal,
     Optional,
     Union,
@@ -17,6 +18,7 @@ from ray.data.datasource.datasink import Datasink
 if TYPE_CHECKING:
     import pandas as pd
     from lance.fragment import FragmentMetadata
+    from lance_namespace import LanceNamespace
 
 
 def _write_fragment(
@@ -73,7 +75,9 @@ class _BaseLanceDatasink(Datasink):
 
     def __init__(
         self,
-        uri: str,
+        uri: Optional[str] = None,
+        namespace: Optional["LanceNamespace"] = None,
+        table_id: Optional[List[str]] = None,
         *args: Any,
         schema: Optional[pa.Schema] = None,
         mode: Literal["create", "append", "overwrite"] = "create",
@@ -82,10 +86,28 @@ class _BaseLanceDatasink(Datasink):
     ):
         super().__init__(*args, **kwargs)
 
-        self.uri = uri
+        # Handle namespace-based table writing
+        if namespace is not None and table_id is not None:
+            self.namespace = namespace
+            self.table_id = table_id
+            
+            if mode == "append":
+                # For append mode, we need to get existing table URI
+                from lance_namespace import DescribeTableRequest
+                describe_request = DescribeTableRequest(id=table_id)
+                describe_response = namespace.describe_table(describe_request)
+                self.uri = describe_response.location
+            else:
+                # For create/overwrite modes, we'll determine URI based on namespace implementation
+                # For now, we'll let the namespace handle the URI generation after write
+                self.uri = None  # Will be set during write process
+        else:
+            self.namespace = None
+            self.table_id = None
+            self.uri = uri
+        
         self.schema = schema
         self.mode = mode
-
         self.read_version: Optional[int] = None
         self.storage_options = storage_options
 
@@ -154,6 +176,33 @@ class _BaseLanceDatasink(Datasink):
                 read_version=self.read_version,
                 storage_options=self.storage_options,
             )
+            
+            # Register table with namespace if using namespace-based writing
+            if self.namespace is not None and self.table_id is not None and self.mode in {"create", "overwrite"}:
+                self._register_table_with_namespace()
+    
+    def _register_table_with_namespace(self):
+        """Register the table with the namespace after successful write."""
+        try:
+            from lance_namespace import RegisterTableRequest
+            
+            # Map write mode to register mode
+            register_mode = "CREATE" if self.mode == "create" else "OVERWRITE"
+            
+            register_request = RegisterTableRequest(
+                id=self.table_id,
+                location=self.uri,
+                mode=register_mode
+            )
+            
+            self.namespace.register_table(register_request)
+        except Exception as e:
+            import warnings
+            warnings.warn(
+                f"Failed to register table {self.table_id} with namespace: {e}",
+                RuntimeWarning,
+                stacklevel=3
+            )
 
 
 class LanceDatasink(_BaseLanceDatasink):
@@ -188,7 +237,9 @@ class LanceDatasink(_BaseLanceDatasink):
 
     def __init__(
         self,
-        uri: str,
+        uri: Optional[str] = None,
+        namespace: Optional["LanceNamespace"] = None,
+        table_id: Optional[List[str]] = None,
         *args: Any,
         schema: Optional[pa.Schema] = None,
         mode: Literal["create", "append", "overwrite"] = "create",
@@ -200,6 +251,8 @@ class LanceDatasink(_BaseLanceDatasink):
     ):
         super().__init__(
             uri,
+            namespace,
+            table_id,
             *args,
             schema=schema,
             mode=mode,
