@@ -272,11 +272,17 @@ class TestDatasetOptions:
         assert len(versions) == 2
         assert len(ds) == 10
 
-        dataset = lr.read_lance(str(path), dataset_options={
-            "version": versions[0]["version"],
-        })
+        dataset = lr.read_lance(
+            str(path),
+            dataset_options={
+                "version": versions[0]["version"],
+            },
+        )
         assert dataset.count() == 5
-        dataset = lr.read_lance(str(path), dataset_options={
-            "version": versions[1]["version"],
-        })
+        dataset = lr.read_lance(
+            str(path),
+            dataset_options={
+                "version": versions[1]["version"],
+            },
+        )
         assert dataset.count() == 10
