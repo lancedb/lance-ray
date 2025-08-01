@@ -4,7 +4,7 @@ I/O operations for Lance-Ray integration.
 
 import pickle
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import pyarrow as pa
 from lance.dataset import LanceDataset, LanceOperation
@@ -96,7 +96,7 @@ def read_lance(
         A :class:`~ray.data.Dataset` producing records read from the Lance dataset.
     """  # noqa: E501
     _validate_uri_or_namespace_args(uri, namespace, table_id)
-    
+
     datasource = LanceDatasource(
         uri=uri,
         namespace=namespace,
@@ -170,7 +170,7 @@ def write_lance(
         storage_options: The storage options for the writer. Default is None.
     """
     _validate_uri_or_namespace_args(uri, namespace, table_id)
-    
+
     datasink = LanceDatasink(
         uri,
         namespace=namespace,
@@ -228,7 +228,7 @@ def add_columns(
 ) -> None:
     """
     Add columns to a Lance dataset, currently use ray.util.multiprocessing.Pool to implement it. ray.data API is hard to implement.
-    
+
     Examples:
         Using a URI directly:
         >>> import lance_ray as lr
@@ -243,7 +243,7 @@ def add_columns(
         ...         schema=pa.schema([pa.field("new_column", pa.float64())]),
         ...     )
         >>> lr.add_columns("/tmp/data/", transform=double_score, concurrency=2)
-        
+
         Using a LanceNamespace and table ID:
         >>> import lance_namespace as ln
         >>> namespace = ln.connect("dir", {"root": "/tmp/tables"}) # doctest: +SKIP
@@ -253,7 +253,7 @@ def add_columns(
         ...     transform=double_score,
         ...     concurrency=2
         ... )
-    
+
     Args:
         uri: The path to the destination Lance dataset. Either uri OR (namespace + table_id) must be provided.
         namespace: A LanceNamespace instance to load the table from. Must be provided together with table_id.
@@ -269,14 +269,15 @@ def add_columns(
         concurrency: The number of processes to use for the pool.
     """
     _validate_uri_or_namespace_args(uri, namespace, table_id)
-    
+
     # Resolve URI from namespace if provided
     if namespace is not None and table_id is not None:
         from lance_namespace import DescribeTableRequest
+
         describe_request = DescribeTableRequest(id=table_id)
         describe_response = namespace.describe_table(describe_request)
         uri = describe_response.location
-    
+
     lance_ds = LanceDataset(
         uri=uri, storage_options=storage_options, version=read_version
     )
@@ -313,9 +314,9 @@ def add_columns(
 
 
 def _validate_uri_or_namespace_args(
-        uri: Optional[str],
-        namespace: Optional["LanceNamespace"],
-        table_id: Optional[list[str]],
+    uri: Optional[str],
+    namespace: Optional["LanceNamespace"],
+    table_id: Optional[list[str]],
 ) -> None:
     """Validate that either uri OR (namespace + table_id) is provided."""
     if uri is not None and (namespace is not None or table_id is not None):

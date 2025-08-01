@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Optional, List
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -12,7 +12,6 @@ from ray.data.datasource.datasource import ReadTask
 if TYPE_CHECKING:
     import lance
     from lance_namespace import LanceNamespace
-    from lance_namespace import DescribeTableRequest
 
 
 class LanceDatasource(Datasource):
@@ -29,7 +28,7 @@ class LanceDatasource(Datasource):
         self,
         uri: Optional[str] = None,
         namespace: Optional["LanceNamespace"] = None,
-        table_id: Optional[List[str]] = None,
+        table_id: Optional[list[str]] = None,
         columns: Optional[list[str]] = None,
         filter: Optional[str] = None,
         storage_options: Optional[dict[str, str]] = None,
@@ -42,7 +41,7 @@ class LanceDatasource(Datasource):
         if namespace is not None and table_id is not None:
             # Import here to avoid circular dependency
             from lance_namespace import DescribeTableRequest
-            
+
             # Get the table URI from the namespace
             describe_request = DescribeTableRequest(id=table_id)
             describe_response = namespace.describe_table(describe_request)
@@ -74,6 +73,7 @@ class LanceDatasource(Datasource):
     def lance_dataset(self) -> "lance.LanceDataset":
         if self._lance_ds is None:
             import lance
+
             dataset_options = self._dataset_options.copy()
             dataset_options["uri"] = self._uri
             dataset_options["storage_options"] = self._storage_options
@@ -121,8 +121,12 @@ class LanceDatasource(Datasource):
             )
 
             read_task = ReadTask(
-                lambda fids=fragment_ids, lance_ds=self.lance_dataset, scanner_options=self._scanner_options, retry_params=self._retry_params:
-                _read_fragments_with_retry(fids, lance_ds, scanner_options, retry_params),
+                lambda fids=fragment_ids,
+                lance_ds=self.lance_dataset,
+                scanner_options=self._scanner_options,
+                retry_params=self._retry_params: _read_fragments_with_retry(
+                    fids, lance_ds, scanner_options, retry_params
+                ),
                 metadata,
             )
 
