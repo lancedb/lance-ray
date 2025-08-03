@@ -17,6 +17,7 @@ from .datasource import LanceDatasource
 
 if TYPE_CHECKING:
     from lance.types import ReaderLike
+    from lance_namespace import LanceNamespace
 
     TransformType = (
         dict[str, str]
@@ -27,21 +28,25 @@ if TYPE_CHECKING:
 
 
 def read_lance(
-    uri: str,
+    uri: Optional[str] = None,
     *,
+    namespace: Optional["LanceNamespace"] = None,
+    table_id: Optional[list[str]] = None,
     columns: Optional[list[str]] = None,
     filter: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
     scanner_options: Optional[dict[str, Any]] = None,
+    dataset_options: Optional[dict[str, Any]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
     concurrency: Optional[int] = None,
     override_num_blocks: Optional[int] = None,
 ) -> Dataset:
     """
     Create a :class:`~ray.data.Dataset` from a
-    `Lance Dataset <https://lancedb.github.io/lance/api/py_modules.html#lance.dataset.LanceDataset>`_.
+    `Lance Dataset <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset>`_.
 
     Examples:
+        Using a URI directly:
         >>> import lance_ray as lr
         >>> ds = lr.read_lance( # doctest: +SKIP
         ...     uri="./db_name.lance",
@@ -49,20 +54,34 @@ def read_lance(
         ...     filter="label = 2 AND text IS NOT NULL",
         ... )
 
+        Using a LanceNamespace and table ID:
+        >>> import lance_namespace as ln
+        >>> namespace = ln.connect("dir", {"root": "/path/to/tables"}) # doctest: +SKIP
+        >>> ds = lr.read_lance( # doctest: +SKIP
+        ...     namespace=namespace,
+        ...     table_id=["my_table"],
+        ...     columns=["image", "label"],
+        ... )
+
     Args:
         uri: The URI of the Lance dataset to read from. Local file paths, S3, and GCS
-            are supported.
+            are supported. Either uri OR (namespace + table_id) must be provided.
+        namespace: A LanceNamespace instance to load the table from. Must be provided
+            together with table_id.
+        table_id: The table identifier as a list of strings. Must be provided together
+            with namespace.
         columns: The columns to read. By default, all columns are read.
         filter: Read returns only the rows matching the filter. By default, no
             filter is applied.
         storage_options: Extra options that make sense for a particular storage
             connection. This is used to store connection parameters like credentials,
-            endpoint, etc. For more information, see `Object Store Configuration <https\
-                ://lancedb.github.io/lance/object_store.html#object-store-configuration>`_.
+            endpoint, etc. For more information, see `Object Store Configuration <https://lancedb.github.io/lance/guide/object_store/>`_.
         scanner_options: Additional options to configure the `LanceDataset.scanner()`
             method, such as `batch_size`. For more information,
-            see `LanceDB API doc <https://lancedb.github.io/\
-                lance/api/py_modules.html#lance.LanceDataset.scanner>`_
+            see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset.scanner>`_
+        dataset_options: Additional options to configure the `LanceDataset` instance.
+            This can include options like `version`, `block_size`, etc. For more
+            information, see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset>`_.
         ray_remote_args: kwargs passed to :func:`ray.remote` in the read tasks.
         concurrency: The maximum number of Ray tasks to run concurrently. Set this
             to control number of tasks to run concurrently. This doesn't change the
@@ -76,12 +95,17 @@ def read_lance(
     Returns:
         A :class:`~ray.data.Dataset` producing records read from the Lance dataset.
     """  # noqa: E501
+    _validate_uri_or_namespace_args(uri, namespace, table_id)
+
     datasource = LanceDatasource(
         uri=uri,
+        namespace=namespace,
+        table_id=table_id,
         columns=columns,
         filter=filter,
         storage_options=storage_options,
         scanner_options=scanner_options,
+        dataset_options=dataset_options,
     )
 
     return read_datasource(
@@ -94,8 +118,10 @@ def read_lance(
 
 def write_lance(
     ds: Dataset,
-    uri: str,
+    uri: Optional[str] = None,
     *,
+    namespace: Optional["LanceNamespace"] = None,
+    table_id: Optional[list[str]] = None,
     schema: Optional[pa.Schema] = None,
     mode: Literal["create", "append", "overwrite"] = "create",
     min_rows_per_file: int = 1024 * 1024,
@@ -108,7 +134,8 @@ def write_lance(
     """Write the dataset to a Lance dataset.
 
     Examples:
-            .. testcode::
+        Using a URI directly:
+        .. testcode::
             import lance_ray as lr
             import pandas as pd
 
@@ -116,8 +143,22 @@ def write_lance(
             ds = ray.data.from_pandas(pd.DataFrame(docs))
             lr.write_lance(ds, "/tmp/data/")
 
+        Using a LanceNamespace and table ID:
+        .. testcode::
+            import lance_namespace as ln
+            import lance_ray as lr
+            import pandas as pd
+
+            docs = [{"title": "Lance data sink test"} for key in range(4)]
+            ds = ray.data.from_pandas(pd.DataFrame(docs))
+            namespace = ln.connect("dir", {"root": "/tmp/tables"}) # doctest: +SKIP
+            lr.write_lance(ds, namespace=namespace, table_id=["my_table"]) # doctest: +SKIP
+
     Args:
-        uri: The path to the destination Lance dataset.
+        ds: The Ray dataset to write.
+        uri: The path to the destination Lance dataset. Either uri OR (namespace + table_id) must be provided.
+        namespace: A LanceNamespace instance to write the table to. Must be provided together with table_id.
+        table_id: The table identifier as a list of strings. Must be provided together with namespace.
         schema: The schema of the dataset. If not provided, it is inferred from the data.
         mode: The write mode. Can be "create", "append", or "overwrite".
         min_rows_per_file: The minimum number of rows per file.
@@ -128,8 +169,12 @@ def write_lance(
             for more details.
         storage_options: The storage options for the writer. Default is None.
     """
+    _validate_uri_or_namespace_args(uri, namespace, table_id)
+
     datasink = LanceDatasink(
         uri,
+        namespace=namespace,
+        table_id=table_id,
         schema=schema,
         mode=mode,
         min_rows_per_file=min_rows_per_file,
@@ -169,6 +214,8 @@ def _handle_fragment(
 def add_columns(
     uri: str,
     *,
+    namespace: Optional["LanceNamespace"] = None,
+    table_id: Optional[list[str]] = None,
     transform: "TransformType",
     filter: Optional[str] = None,
     read_columns: Optional[list[str]] = None,
@@ -181,7 +228,9 @@ def add_columns(
 ) -> None:
     """
     Add columns to a Lance dataset, currently use ray.util.multiprocessing.Pool to implement it. ray.data API is hard to implement.
-    Example:
+
+    Examples:
+        Using a URI directly:
         >>> import lance_ray as lr
         >>> import pyarrow as pa
         >>> import pandas as pd
@@ -194,8 +243,21 @@ def add_columns(
         ...         schema=pa.schema([pa.field("new_column", pa.float64())]),
         ...     )
         >>> lr.add_columns("/tmp/data/", transform=double_score, concurrency=2)
+
+        Using a LanceNamespace and table ID:
+        >>> import lance_namespace as ln
+        >>> namespace = ln.connect("dir", {"root": "/tmp/tables"}) # doctest: +SKIP
+        >>> lr.add_columns( # doctest: +SKIP
+        ...     namespace=namespace,
+        ...     table_id=["my_table"],
+        ...     transform=double_score,
+        ...     concurrency=2
+        ... )
+
     Args:
-        uri: The path to the destination Lance dataset.
+        uri: The path to the destination Lance dataset. Either uri OR (namespace + table_id) must be provided.
+        namespace: A LanceNamespace instance to load the table from. Must be provided together with table_id.
+        table_id: The table identifier as a list of strings. Must be provided together with namespace.
         transform: The transform to apply to the dataset. It support a lot of types, see `LanceDB API doc https://lancedb.github.io/lance-python-doc/data-evolution.html ` for more details.
         filter: The filter to apply to the dataset. It is not supported yet, will be supported when `get_fragments` support filter see `LanceDB API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset.get_fragments>`_.
         read_columns: The columns from the original dataset to read.
@@ -206,6 +268,16 @@ def add_columns(
         batch_size: The batch size to use for the reader.
         concurrency: The number of processes to use for the pool.
     """
+    _validate_uri_or_namespace_args(uri, namespace, table_id)
+
+    # Resolve URI from namespace if provided
+    if namespace is not None and table_id is not None:
+        from lance_namespace import DescribeTableRequest
+
+        describe_request = DescribeTableRequest(id=table_id)
+        describe_response = namespace.describe_table(describe_request)
+        uri = describe_response.location
+
     lance_ds = LanceDataset(
         uri=uri, storage_options=storage_options, version=read_version
     )
@@ -239,3 +311,21 @@ def add_columns(
         storage_options=storage_options,
     )
     pool.close()
+
+
+def _validate_uri_or_namespace_args(
+    uri: Optional[str],
+    namespace: Optional["LanceNamespace"],
+    table_id: Optional[list[str]],
+) -> None:
+    """Validate that either uri OR (namespace + table_id) is provided."""
+    if uri is not None and (namespace is not None or table_id is not None):
+        raise ValueError(
+            "Cannot provide both 'uri' and 'namespace'/'table_id'. "
+            "Use either 'uri' OR ('namespace' + 'table_id')."
+        )
+
+    if uri is None and (namespace is None or table_id is None):
+        raise ValueError(
+            "Must provide either 'uri' OR both 'namespace' and 'table_id'."
+        )
