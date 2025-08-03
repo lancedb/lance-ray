@@ -7,7 +7,7 @@ Install the latest development version with all dependencies:
 ```bash
 git clone https://github.com/<your-username>/lance-ray.git
 cd lance-ray
-pip install -e .[dev]
+uv pip install -e .[dev]
 ```
 # Requirements
 
@@ -22,5 +22,5 @@ pip install -e .[dev]
 To run all tests using [pytest](https://docs.pytest.org/):
 
 ```bash
-pytest
+uv run pytest
 ```
