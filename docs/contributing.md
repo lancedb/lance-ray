@@ -13,9 +13,18 @@ uv pip install -e .[dev]
 
 - Python >= 3.8
 
-- Ray >= 2.0.0
+- Ray >= 2.40.0
 
-- Lance >= 0.2.0
+- PyLance >= 0.30.0
+
+- lance-namespace >= 0.0.5
+
+- PyArrow >= 17.0.0
+
+- Pandas >= 2.2.0
+
+- NumPy >= 2.0.0
+
 
 # Running Tests
 
