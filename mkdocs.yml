@@ -1,8 +1,51 @@
-site_name: Lance-Ray Documentation
+site_name: Lance-Ray
+strict: true
+docs_dir: docs
+
+repo_name: lancedb/lance-ray
+repo_url: https://github.com/lancedb/lance-ray
+
+theme:
+  name: material
+  logo: images/lance-logo.png
+  favicon: images/lance-favicon.png
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    
+  icon:
+    repo: fontawesome/brands/github
 
 nav:
   - Home: index.md
-  - Quick Start: quick-start.md
   - Examples: examples.md
   - Contributing: contributing.md
-  
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/lancedb/lance-ray
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/zMM32dvNtd
+    - icon: fontawesome/brands/x-twitter
+      link: https://twitter.com/lancedb
+  footer:
+    social: true
