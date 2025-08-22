@@ -228,6 +228,13 @@ class TestReadWrite:
         overwritten_df = overwritten_dataset.to_pandas()
         assert len(overwritten_df) == 2  # Should have 2 rows after overwrite
 
+    def test_read_lance_with_fragment_ids(self, sample_dataset, temp_dir):
+        """Test reading with fragment IDs."""
+        path = Path(temp_dir) / "fragment_ids_test.lance"
+        lr.write_lance(sample_dataset, str(path), max_rows_per_file=1)
+        dataset = lr.read_lance(str(path), fragment_ids=[0, 1])
+        assert dataset.count() == 2
+
 
 class TestAddColumns:
     """Test cases for add_columns function."""

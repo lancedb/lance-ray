@@ -37,6 +37,7 @@ def read_lance(
     storage_options: Optional[dict[str, Any]] = None,
     scanner_options: Optional[dict[str, Any]] = None,
     dataset_options: Optional[dict[str, Any]] = None,
+    fragment_ids: Optional[list[int]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
     concurrency: Optional[int] = None,
     override_num_blocks: Optional[int] = None,
@@ -82,6 +83,7 @@ def read_lance(
         dataset_options: Additional options to configure the `LanceDataset` instance.
             This can include options like `version`, `block_size`, etc. For more
             information, see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset>`_.
+        fragment_ids: The fragment IDs to read. If provided, only the fragments with the given IDs will be read.
         ray_remote_args: kwargs passed to :func:`ray.remote` in the read tasks.
         concurrency: The maximum number of Ray tasks to run concurrently. Set this
             to control number of tasks to run concurrently. This doesn't change the
@@ -106,6 +108,7 @@ def read_lance(
         storage_options=storage_options,
         scanner_options=scanner_options,
         dataset_options=dataset_options,
+        fragment_ids=fragment_ids,
     )
 
     return read_datasource(
