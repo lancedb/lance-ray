@@ -34,6 +34,7 @@ class LanceDatasource(Datasource):
         storage_options: Optional[dict[str, str]] = None,
         scanner_options: Optional[dict[str, Any]] = None,
         dataset_options: Optional[dict[str, Any]] = None,
+        fragment_ids: Optional[list[int]] = None,
     ):
         _check_import(self, module="lance", package="pylance")
 
@@ -65,6 +66,7 @@ class LanceDatasource(Datasource):
             "max_attempts": self.READ_FRAGMENTS_MAX_ATTEMPTS,
             "max_backoff_s": self.READ_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
         }
+        self._fragment_ids = set(fragment_ids) if fragment_ids else None
 
         self._lance_ds = None
         self._fragments = None
@@ -84,6 +86,8 @@ class LanceDatasource(Datasource):
     def fragments(self) -> list["lance.LanceFragment"]:
         if self._fragments is None:
             self._fragments = self.lance_dataset.get_fragments() or []
+            if self._fragment_ids:
+                self._fragments = [f for f in self._fragments if f.metadata.id in self._fragment_ids]
         return self._fragments
 
     def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
