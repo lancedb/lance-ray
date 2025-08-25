@@ -1,0 +1,5 @@
+nav:
+  - Welcome: index.md
+  - Read: read.md
+  - Write: write.md
+  - Examples: examples.md
