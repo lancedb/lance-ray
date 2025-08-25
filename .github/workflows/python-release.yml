@@ -1,0 +1,60 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Python Release
+
+on:
+  release:
+    types:
+      - released
+  pull_request:
+    paths:
+      - .github/workflows/python-release.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry_run: build & test only, release: build & publish to PyPI"
+        required: true
+        default: "dry_run"
+        type: choice
+        options:
+          - dry_run
+          - release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for PyPI trusted publishing
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Build lance-ray
+        run: |
+          uv build
+
+      - name: Publish to PyPI
+        if: |
+          (github.event_name == 'release' && github.event.action == 'released') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'release')
+        run: |
+          uv publish --trusted-publishing always
