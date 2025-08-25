@@ -10,7 +10,8 @@ from typing import (
 )
 
 import pyarrow as pa
-from ray.data._internal.util import _check_import
+from ray.data import DataContext
+from ray.data._internal.util import _check_import, call_with_retry
 from ray.data.block import BlockAccessor
 from ray.data.datasource.datasink import Datasink
 
@@ -30,6 +31,7 @@ def _write_fragment(
     max_rows_per_group: int = 1024,  # Only useful for v1 writer.
     data_storage_version: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
+    retry_params: Optional[dict[str, Any]] = None,
 ) -> list[tuple["FragmentMetadata", pa.Schema]]:
     import pandas as pd
     from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
@@ -56,15 +58,18 @@ def _write_fragment(
     )
 
     reader = pa.RecordBatchReader.from_batches(schema, record_batch_converter())
-    fragments = write_fragments(
-        reader,
-        uri,
-        schema=schema,
-        max_rows_per_file=max_rows_per_file,
-        max_rows_per_group=max_rows_per_group,
-        max_bytes_per_file=max_bytes_per_file,
-        data_storage_version=data_storage_version,
-        storage_options=storage_options,
+    fragments = call_with_retry(
+        lambda: write_fragments(
+            reader,
+            uri,
+            schema=schema,
+            max_rows_per_file=max_rows_per_file,
+            max_rows_per_group=max_rows_per_group,
+            max_bytes_per_file=max_bytes_per_file,
+            data_storage_version=data_storage_version,
+            storage_options=storage_options,
+        ),
+        **retry_params,
     )
     return [(fragment, schema) for fragment in fragments]
 
@@ -237,6 +242,9 @@ class LanceDatasink(_BaseLanceDatasink):
     """
 
     NAME = "Lance"
+    WRITE_FRAGMENTS_ERRORS_TO_RETRY = ["LanceError(IO)"]
+    WRITE_FRAGMENTS_MAX_ATTEMPTS = 10
+    WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS = 32
 
     def __init__(
         self,
@@ -269,6 +277,16 @@ class LanceDatasink(_BaseLanceDatasink):
         # if mode is append, read_version is read from existing dataset.
         self.read_version: Optional[int] = None
 
+        match = []
+        match.extend(self.WRITE_FRAGMENTS_ERRORS_TO_RETRY)
+        match.extend(DataContext.get_current().retried_io_errors)
+        self._retry_params = {
+            "description": "write lance fragments",
+            "match": match,
+            "max_attempts": self.WRITE_FRAGMENTS_MAX_ATTEMPTS,
+            "max_backoff_s": self.WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
+        }
+
     @property
     def min_rows_per_write(self) -> int:
         return self.min_rows_per_file
@@ -288,6 +306,7 @@ class LanceDatasink(_BaseLanceDatasink):
             max_rows_per_file=self.max_rows_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
+            retry_params=self._retry_params,
         )
         return [
             (pickle.dumps(fragment), pickle.dumps(schema))
