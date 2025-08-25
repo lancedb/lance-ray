@@ -5,13 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lance-ray"
 version = "0.0.1"
-description = "Ray integration for Lance columnar format"
+description = "Ray integration for Lance"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-authors = [
-    {name = "Lance Ray Team", email = "team@lance-ray.dev"},
-]
+authors = [{ name = "LanceDB Devs", email = "dev@lancedb.com" }]
 keywords = ["ray", "lance", "distributed", "columnar", "data"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -27,7 +25,7 @@ classifiers = [
 dependencies = [
     "ray[default]>=2.40.0",
     "pylance>=0.30.0",
-    "lance-namespace>=0.0.5",
+    "lance-namespace>=0.0.6",
     "pyarrow>=17.0.0",
     "pandas>=2.2.0",
     "numpy>=2.0.0",
