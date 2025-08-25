@@ -5,19 +5,7 @@
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://lancedb.github.io/lance/integrations/ray)
 
 A Python library that provides seamless integration between 
-[Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed columnar data processing.
+[Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed data processing.
 
-- [Documentation](https://lancedb.github.io/lance-ray/)
+- [User Guide and API Documentation](https://lancedb.github.io/lance-ray/)
 - [Contributing Guide and Dev Setup](./CONTRIBUTING.md)
-
-## Quick Start
-
-
-
-
-
-## API Reference
-
-### I/O Functions
-
-
