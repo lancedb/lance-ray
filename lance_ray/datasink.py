@@ -124,10 +124,24 @@ class _BaseLanceDatasink(Datasink):
                 describe_request = DescribeTableRequest(id=table_id)
                 describe_response = namespace.describe_table(describe_request)
                 self.uri = describe_response.location
+            elif mode == "overwrite":
+                # For overwrite mode, try to get existing table URI, fallback to create logic
+                from lance_namespace import DescribeTableRequest
+
+                try:
+                    describe_request = DescribeTableRequest(id=table_id)
+                    describe_response = namespace.describe_table(describe_request)
+                    self.uri = describe_response.location
+                except Exception:
+                    # Table doesn't exist, fallback to create logic
+                    self.uri = self._derive_table_uri_from_namespace(
+                        namespace, table_id, uri
+                    )
             else:
-                # For create/overwrite modes, we'll determine URI based on namespace implementation
-                # For now, we'll let the namespace handle the URI generation after write
-                self.uri = None  # Will be set during write process
+                # For create mode, try to derive URI from namespace properties
+                self.uri = self._derive_table_uri_from_namespace(
+                    namespace, table_id, uri
+                )
         else:
             self.namespace = None
             self.table_id = None
@@ -137,6 +151,62 @@ class _BaseLanceDatasink(Datasink):
         self.mode = mode
         self.read_version: Optional[int] = None
         self.storage_options = storage_options
+
+    def _derive_table_uri_from_namespace(
+        self,
+        namespace: "LanceNamespace",
+        table_id: list[str],
+        uri: Optional[str],
+    ) -> str:
+        """Derive table URI from namespace hierarchy properties or use provided URI."""
+        # If URI is explicitly provided, use it
+        if uri is not None:
+            return uri
+
+        # Try to derive URI from namespace properties
+        # Check each namespace level from lowest (database) to highest for location property
+        from lance_namespace import DescribeNamespaceRequest
+
+        # Build namespace path from table_id (excluding the table name itself)
+        # table_id format is typically [catalog, database, ..., table]
+        namespace_levels = table_id[:-1]  # Exclude table name
+        table_name = table_id[-1]
+
+        base_location = None
+        subpath_parts = []
+
+        # Check each namespace level from lowest to highest
+        for i in range(len(namespace_levels), 0, -1):
+            try:
+                namespace_id = namespace_levels[:i]
+                describe_request = DescribeNamespaceRequest(id=namespace_id)
+                describe_response = namespace.describe_namespace(describe_request)
+
+                # Check if this namespace has a location property
+                if (
+                    describe_response.properties
+                    and "location" in describe_response.properties
+                ):
+                    base_location = describe_response.properties["location"]
+                    # Collect the remaining namespace parts for subpath
+                    subpath_parts = namespace_levels[i:]
+                    break
+            except Exception:
+                # This namespace level doesn't exist or doesn't have location, continue
+                continue
+
+        if base_location:
+            # Construct the full URI
+            path_parts = [base_location.rstrip("/")]
+            path_parts.extend(subpath_parts)
+            path_parts.append(f"{table_name}.lance")
+            return "/".join(path_parts)
+
+        # Could not derive URI from namespace properties
+        raise ValueError(
+            "uri must be set when creating a new dataset - "
+            "could not derive default location from namespace properties"
+        )
 
     @property
     def supports_distributed_writes(self) -> bool:
