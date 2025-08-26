@@ -12,13 +12,30 @@ from typing import (
 import pyarrow as pa
 from ray.data import DataContext
 from ray.data._internal.util import _check_import, call_with_retry
-from ray.data.block import BlockAccessor
 from ray.data.datasource.datasink import Datasink
 
 if TYPE_CHECKING:
     import pandas as pd
     from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
+
+
+def _pd_to_arrow(
+    df: Union[pa.Table, "pd.DataFrame", dict], schema: Optional[pa.Schema]
+) -> pa.Table:
+    """Convert a pandas DataFrame to pyarrow Table."""
+    import pandas as pd
+
+    if isinstance(df, dict):
+        return pa.Table.from_pydict(df, schema=schema)
+    elif isinstance(df, pd.DataFrame):
+        tbl = pa.Table.from_pandas(df, schema=schema)
+        new_schema = tbl.schema.remove_metadata()
+        new_table = tbl.replace_schema_metadata(new_schema.metadata)
+        return new_table
+    elif isinstance(df, pa.Table) and df.num_rows > 0 and schema is not None:
+        return df.cast(schema)
+    return df
 
 
 def _write_fragment(
@@ -40,6 +57,9 @@ def _write_fragment(
         first = next(iter(stream))
         if isinstance(first, pd.DataFrame):
             schema = pa.Schema.from_pandas(first).remove_metadata()
+        elif isinstance(first, dict):
+            tbl = pa.Table.from_pydict(first)
+            schema = tbl.schema.remove_metadata()
         else:
             schema = first.schema
         if len(schema.names) == 0:
@@ -50,7 +70,7 @@ def _write_fragment(
 
     def record_batch_converter():
         for block in stream:
-            tbl = BlockAccessor.for_block(block).to_arrow()
+            tbl = _pd_to_arrow(block, schema)
             yield from tbl.to_batches()
 
     max_bytes_per_file = (

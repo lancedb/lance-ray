@@ -87,7 +87,9 @@ class LanceDatasource(Datasource):
         if self._fragments is None:
             self._fragments = self.lance_dataset.get_fragments() or []
             if self._fragment_ids:
-                self._fragments = [f for f in self._fragments if f.metadata.id in self._fragment_ids]
+                self._fragments = [
+                    f for f in self._fragments if f.metadata.id in self._fragment_ids
+                ]
         return self._fragments
 
     def get_read_tasks(self, parallelism: int) -> list[ReadTask]:

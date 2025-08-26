@@ -1,5 +1,6 @@
 """Test cases for lance_ray.io module."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -86,6 +87,50 @@ class TestWriteLance:
 
         with pytest.raises((ValueError, AttributeError, TypeError)):
             lr.write_lance(None, str(path))  # type: ignore
+
+    def test_write_with_pandas_map_batches(self, temp_dir):
+        def map_fn(row):
+            return {
+                "id": row["id"],
+                "name": row["name"],
+                "age": row["age"],
+                "score": row["score"],
+                "extra": None,
+            }
+
+        def to_pd(batch: pd.DataFrame):
+            return batch
+
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("age", pa.int32()),
+                pa.field("score", pa.float64()),
+                pa.field("extra", pa.string()),
+            ]
+        )
+        data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "score": [85.5, 92.0, 78.5, 88.0, 95.5],
+            }
+        )
+        dataset = ray.data.from_pandas(data)
+        lance_dataset_path = os.path.join(temp_dir, "lance_dataset_test.lance")
+        processed_ds = dataset.map(map_fn).map_batches(
+            lambda batch: to_pd(batch), batch_format="pandas"
+        )
+        lr.write_lance(
+            processed_ds, lance_dataset_path, mode="overwrite", schema=schema
+        )
+        ds = lance.dataset(lance_dataset_path)
+        assert ds.count_rows() == 5
+        assert ds.schema == schema
+        tbl = ds.to_table()
+        assert set(data["name"].tolist()) == set(tbl["name"].to_pylist())
 
 
 class TestReadLance:
