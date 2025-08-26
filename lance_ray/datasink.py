@@ -24,11 +24,12 @@ def _pd_to_arrow(
     df: Union[pa.Table, "pd.DataFrame", dict], schema: Optional[pa.Schema]
 ) -> pa.Table:
     """Convert a pandas DataFrame to pyarrow Table."""
-    import pandas as pd
+    from lance.dependencies import _PANDAS_AVAILABLE
+    from lance.dependencies import pandas as pd
 
     if isinstance(df, dict):
         return pa.Table.from_pydict(df, schema=schema)
-    elif isinstance(df, pd.DataFrame):
+    elif _PANDAS_AVAILABLE and isinstance(df, pd.DataFrame):
         tbl = pa.Table.from_pandas(df, schema=schema)
         new_schema = tbl.schema.remove_metadata()
         new_table = tbl.replace_schema_metadata(new_schema.metadata)
@@ -50,12 +51,13 @@ def _write_fragment(
     storage_options: Optional[dict[str, Any]] = None,
     retry_params: Optional[dict[str, Any]] = None,
 ) -> list[tuple["FragmentMetadata", pa.Schema]]:
-    import pandas as pd
+    from lance.dependencies import _PANDAS_AVAILABLE
+    from lance.dependencies import pandas as pd
     from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
 
     if schema is None:
         first = next(iter(stream))
-        if isinstance(first, pd.DataFrame):
+        if _PANDAS_AVAILABLE and isinstance(first, pd.DataFrame):
             schema = pa.Schema.from_pandas(first).remove_metadata()
         elif isinstance(first, dict):
             tbl = pa.Table.from_pydict(first)
