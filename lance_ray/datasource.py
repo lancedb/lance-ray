@@ -120,7 +120,6 @@ class LanceDatasource(Datasource):
             # TODO(chengsu): Take column projection into consideration for schema.
             metadata = BlockMetadata(
                 num_rows=num_rows,
-                schema=fragments[0].schema,
                 input_files=input_files,
                 size_bytes=None,
                 exec_stats=None,
