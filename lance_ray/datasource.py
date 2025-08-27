@@ -38,7 +38,6 @@ class LanceDatasource(Datasource):
     ):
         _check_import(self, module="lance", package="pylance")
 
-        self._storage_options = storage_options
         self._dataset_options = dataset_options or {}
         self._scanner_options = scanner_options or {}
         if columns is not None:
@@ -55,10 +54,16 @@ class LanceDatasource(Datasource):
             describe_request = DescribeTableRequest(id=table_id)
             describe_response = namespace.describe_table(describe_request)
             self._uri = describe_response.location
+
+            merged_storage_options = dict()
+            if storage_options:
+                merged_storage_options.update(storage_options)
             if describe_response.storage_options:
-                self._storage_options = describe_response.storage_options
+                merged_storage_options.update(describe_response.storage_options)
+            self._storage_options = merged_storage_options
         else:
             self._uri = uri
+            self._storage_options = storage_options
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
