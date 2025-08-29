@@ -29,6 +29,10 @@ on:
         options:
           - dry_run
           - release
+      ref:
+        description: 'The branch, tag or SHA to checkout'
+        required: false
+        type: string
 
 jobs:
   publish:
@@ -39,6 +43,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # When triggered by a release, use the release tag
+          # When triggered manually, use the provided ref
+          ref: ${{ github.event.release.tag_name || inputs.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,9 +60,17 @@ jobs:
         run: |
           uv build
 
+      - name: Get package version
+        id: get_version
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
+
       - name: Publish to PyPI
         if: |
           (github.event_name == 'release' && github.event.action == 'released') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'release')
         run: |
           uv publish --trusted-publishing always
+          echo "✅ Successfully published version ${{ steps.get_version.outputs.version }} to PyPI!"
