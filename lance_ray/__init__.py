@@ -5,9 +5,9 @@ This package provides integration between Ray and Lance for distributed
 columnar data processing.
 """
 
-__version__ = "0.0.1"
-__author__ = "Lance Ray Team"
-__email__ = "team@lance-ray.dev"
+__version__ = "0.0.2"
+__author__ = "LanceDB Devs"
+__email__ = "dev@lancedb.com"
 
 # Main imports
 from .io import add_columns, read_lance, write_lance
