@@ -98,5 +98,5 @@ This section describes the CI/CD workflows for automated version management, rel
    - Go to the [Releases page](../../releases) to review the draft
    - Edit release notes if needed
    - Click "Publish release" to:
-     - For stable releases: Trigger automatic Maven Central publishing
-     - For preview releases: Create a beta release (not published to Maven Central)
+     - For stable releases: Trigger automatic PyPI publishing
+     - For preview releases: Create a beta release (not published to PyPI)
