@@ -29,6 +29,10 @@ on:
         options:
           - dry_run
           - release
+      ref:
+        description: 'The branch, tag or SHA to checkout'
+        required: false
+        type: string
 
 jobs:
   publish:
@@ -39,6 +43,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # When triggered by a release, use the release tag
+          # When triggered manually, use the provided ref
+          ref: ${{ github.event.release.tag_name || inputs.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,9 +60,49 @@ jobs:
         run: |
           uv build
 
+      - name: Get package version
+        id: get_version
+        run: |
+          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
+
       - name: Publish to PyPI
         if: |
           (github.event_name == 'release' && github.event.action == 'released') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'release')
         run: |
           uv publish --trusted-publishing always
+      
+      - name: Wait for PyPI availability
+        if: |
+          (github.event_name == 'release' && github.event.action == 'released') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'release')
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          PACKAGE_NAME="lance-ray"
+          
+          echo "Waiting for ${PACKAGE_NAME}==${VERSION} to be available on PyPI..."
+          
+          # Wait up to 5 minutes for the package to be available
+          MAX_ATTEMPTS=30
+          SLEEP_TIME=10
+          
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Attempt $i/$MAX_ATTEMPTS: Checking PyPI..."
+            
+            # Check if package is available
+            if pip index versions ${PACKAGE_NAME} 2>/dev/null | grep -q "${VERSION}"; then
+              echo "✅ Package ${PACKAGE_NAME}==${VERSION} is now available on PyPI!"
+              exit 0
+            fi
+            
+            if [ $i -lt $MAX_ATTEMPTS ]; then
+              echo "Package not yet available. Waiting ${SLEEP_TIME} seconds..."
+              sleep $SLEEP_TIME
+            fi
+          done
+          
+          echo "⚠️ Warning: Package ${PACKAGE_NAME}==${VERSION} is not yet available on PyPI after ${MAX_ATTEMPTS} attempts."
+          echo "It may still be processing. Please check https://pypi.org/project/${PACKAGE_NAME}/ manually."
+          exit 1
