@@ -4,16 +4,18 @@ Script to calculate the next version based on release type
 """
 
 import argparse
-import sys
 import os
+import sys
+
 from packaging import version
+
 
 def calculate_next_version(current_version, release_type, channel):
     """Calculate the next version based on release type and channel"""
-    
+
     # Parse current version
     v = version.parse(current_version)
-    
+
     # Extract major, minor, patch
     if hasattr(v, 'release'):
         major, minor, patch = v.release[:3] if len(v.release) >= 3 else (*v.release, 0, 0)[:3]
@@ -23,7 +25,7 @@ def calculate_next_version(current_version, release_type, channel):
         major = int(parts[0]) if len(parts) > 0 else 0
         minor = int(parts[1]) if len(parts) > 1 else 0
         patch = int(parts[2]) if len(parts) > 2 else 0
-    
+
     # Calculate new version for stable releases
     if channel == 'stable':
         if release_type == 'major':
@@ -37,7 +39,7 @@ def calculate_next_version(current_version, release_type, channel):
     else:
         # For preview releases, keep the current version
         new_version = current_version
-    
+
     return new_version
 
 def main():
@@ -45,21 +47,21 @@ def main():
     parser.add_argument('--current', required=True, help='Current version')
     parser.add_argument('--type', required=True, choices=['major', 'minor', 'patch'], help='Release type')
     parser.add_argument('--channel', required=True, choices=['stable', 'preview'], help='Release channel')
-    
+
     args = parser.parse_args()
-    
+
     try:
         new_version = calculate_next_version(args.current, args.type, args.channel)
-        
+
         # Output for GitHub Actions
         print(f"version={new_version}")
-        
+
         # Also write to GITHUB_OUTPUT if available
         github_output = os.environ.get('GITHUB_OUTPUT')
         if github_output:
             with open(github_output, 'a') as f:
                 f.write(f"version={new_version}\n")
-        
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
