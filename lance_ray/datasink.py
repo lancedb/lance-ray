@@ -131,7 +131,10 @@ class _BaseLanceDatasink(Datasink):
                     merged_storage_options.update(describe_response.storage_options)
             elif mode == "overwrite":
                 # For overwrite mode, try to get existing table, fallback to create
-                from lance_namespace_urllib3_client.models import CreateEmptyTableRequest, DescribeTableRequest
+                from lance_namespace_urllib3_client.models import (
+                    CreateEmptyTableRequest,
+                    DescribeTableRequest,
+                )
 
                 try:
                     describe_request = DescribeTableRequest(id=table_id)
@@ -147,7 +150,9 @@ class _BaseLanceDatasink(Datasink):
                         merged_storage_options.update(create_response.storage_options)
             else:
                 # create mode, create an empty table
-                from lance_namespace_urllib3_client.models import CreateEmptyTableRequest
+                from lance_namespace_urllib3_client.models import (
+                    CreateEmptyTableRequest,
+                )
 
                 create_request = CreateEmptyTableRequest(id=table_id)
                 create_response = namespace.create_empty_table(create_request)
