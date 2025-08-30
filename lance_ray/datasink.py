@@ -122,7 +122,7 @@ class _BaseLanceDatasink(Datasink):
 
             if mode == "append":
                 # For append mode, we need to get existing table URI
-                from lance_namespace import DescribeTableRequest
+                from lance_namespace_urllib3_client.models import DescribeTableRequest
 
                 describe_request = DescribeTableRequest(id=table_id)
                 describe_response = namespace.describe_table(describe_request)
@@ -131,7 +131,7 @@ class _BaseLanceDatasink(Datasink):
                     merged_storage_options.update(describe_response.storage_options)
             elif mode == "overwrite":
                 # For overwrite mode, try to get existing table, fallback to create
-                from lance_namespace import CreateTableRequest, DescribeTableRequest
+                from lance_namespace_urllib3_client.models import CreateEmptyTableRequest, DescribeTableRequest
 
                 try:
                     describe_request = DescribeTableRequest(id=table_id)
@@ -140,19 +140,17 @@ class _BaseLanceDatasink(Datasink):
                     if describe_response.storage_options:
                         merged_storage_options.update(describe_response.storage_options)
                 except Exception:
-                    create_request = CreateTableRequest(id=table_id)
-                    data = _empty_arrow_ipc_stream(schema)
-                    create_response = namespace.create_table(create_request, request_data=data)
+                    create_request = CreateEmptyTableRequest(id=table_id)
+                    create_response = namespace.create_empty_table(create_request)
                     self.uri = create_response.location
                     if create_response.storage_options:
                         merged_storage_options.update(create_response.storage_options)
             else:
                 # create mode, create an empty table
-                from lance_namespace import CreateTableRequest
+                from lance_namespace_urllib3_client.models import CreateEmptyTableRequest
 
-                create_request = CreateTableRequest(id=table_id)
-                data = _empty_arrow_ipc_stream(schema)
-                create_response = namespace.create_table(create_request, request_data=data)
+                create_request = CreateEmptyTableRequest(id=table_id)
+                create_response = namespace.create_empty_table(create_request)
                 self.uri = create_response.location
                 if create_response.storage_options:
                     merged_storage_options.update(create_response.storage_options)
@@ -331,11 +329,3 @@ class LanceDatasink(_BaseLanceDatasink):
             (pickle.dumps(fragment), pickle.dumps(schema))
             for fragment, schema in fragments_and_schema
         ]
-
-
-def _empty_arrow_ipc_stream(schema: Optional[pa.Schema]) -> bytes:
-    create_schema = schema if schema is not None else pa.schema([])
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, create_schema):
-        pass
-    return sink.getvalue().to_pybytes()
