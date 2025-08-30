@@ -673,7 +673,7 @@ wheels = [
 
 [[package]]
 name = "lance-namespace"
-version = "0.0.9"
+version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lance-namespace-urllib3-client" },
@@ -681,9 +681,9 @@ dependencies = [
     { name = "pylance" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/4e/e20b71ee1083de2900280a13f147a5eb7d141058d07ad12c0809d0c3cf5a/lance_namespace-0.0.9.tar.gz", hash = "sha256:86b24d71db1ed728aa635fc2e2cfd87faaae49c7f5727a3f30b5dc2a510b6d3a", size = 32452, upload-time = "2025-08-28T18:34:19.75Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/2d/a52a4dfada200cc562e0f9afb3031bfa00231b89a4aaaacee682ffef1ded/lance_namespace-0.0.10.tar.gz", hash = "sha256:2607259d6e649cdd97de2f85d28382734c4fa7532610b19b451dd8363ce0c577", size = 32460, upload-time = "2025-08-30T16:29:52.614Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/66/62a17c31723347a15c4ab6556b612af1738399f584902349311409620982/lance_namespace-0.0.9-py3-none-any.whl", hash = "sha256:697b032878e71c05658172bc6b7ab73a66d0d4731bc96474ccad5d3c9027d53b", size = 24285, upload-time = "2025-08-28T18:34:18.177Z" },
+    { url = "https://files.pythonhosted.org/packages/db/ef/aab0b6505ec0acb80c976ace80e4da64aae48a5a694c5839bbada0d9b24a/lance_namespace-0.0.10-py3-none-any.whl", hash = "sha256:b754a89b45e8bd4051b275078b8f98aa7d0dfad6f0f41ef05b2cf217cf2bc604", size = 24305, upload-time = "2025-08-30T16:29:51.575Z" },
 ]
 
 [package.optional-dependencies]
@@ -736,7 +736,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lance-namespace", extras = ["dir"], specifier = ">=0.0.9" },
+    { name = "lance-namespace", extras = ["dir"], specifier = ">=0.0.10" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.5.0" },
     { name = "mkdocs-awesome-pages-plugin", marker = "extra == 'docs'", specifier = ">=2.9.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.0.0" },
