@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -125,14 +126,23 @@ class LanceDatasource(Datasource):
                 for data_file in fragment.data_files()
             ]
 
-            # TODO(chengsu): Take column projection into consideration for schema.
-            metadata = BlockMetadata(
-                num_rows=num_rows,
-                schema=fragments[0].schema,
-                input_files=input_files,
-                size_bytes=None,
-                exec_stats=None,
-            )
+            # Ray 2.48+ no longer has the schema argument...
+            if "schema" in inspect.signature(BlockMetadata.__init__).parameters:
+                # TODO(chengsu): Take column projection into consideration for schema.
+                metadata = BlockMetadata(
+                    num_rows=num_rows,
+                    schema=fragments[0].schema,
+                    input_files=input_files,
+                    size_bytes=None,
+                    exec_stats=None,
+                )
+            else:
+                metadata = BlockMetadata(
+                    num_rows=num_rows,
+                    input_files=input_files,
+                    size_bytes=None,
+                    exec_stats=None,
+                )
 
             read_task = ReadTask(
                 lambda fids=fragment_ids,
