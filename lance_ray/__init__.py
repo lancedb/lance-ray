@@ -11,9 +11,11 @@ __email__ = "dev@lancedb.com"
 
 # Main imports
 from .io import add_columns, read_lance, write_lance
+from .index import create_fts_index
 
 __all__ = [
     "read_lance",
     "write_lance",
     "add_columns",
+    "create_fts_index",
 ]
