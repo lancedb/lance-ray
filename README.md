@@ -7,5 +7,5 @@
 A Python library that provides seamless integration between 
 [Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed data processing.
 
-- [User Guide and API Documentation](https://lancedb.github.io/lance-ray/)
+- [User Guide and API Documentation](https://lancedb.github.io/lance/integrations/ray/)
 - [Contributing Guide and Dev Setup](./CONTRIBUTING.md)
