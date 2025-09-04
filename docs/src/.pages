@@ -1,6 +1,8 @@
+
 nav:
   - Welcome: index.md
   - Read: read.md
   - Write: write.md
+  - Index: distributed-indexing.md
   - Data Evolution: data-evolution.md
   - Examples: examples.md
