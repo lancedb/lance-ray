@@ -673,7 +673,7 @@ wheels = [
 
 [[package]]
 name = "lance-namespace"
-version = "0.0.10"
+version = "0.0.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lance-namespace-urllib3-client" },
@@ -681,9 +681,9 @@ dependencies = [
     { name = "pylance" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0a/2d/a52a4dfada200cc562e0f9afb3031bfa00231b89a4aaaacee682ffef1ded/lance_namespace-0.0.10.tar.gz", hash = "sha256:2607259d6e649cdd97de2f85d28382734c4fa7532610b19b451dd8363ce0c577", size = 32460, upload-time = "2025-08-30T16:29:52.614Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/02/32f1362be5fd4bf310552326f9948d200a492a7bdbeadf406ec0b895e14a/lance_namespace-0.0.14.tar.gz", hash = "sha256:968db20f31dce71107d01f121610415ea28247303161ac5645346220899be14d", size = 32461, upload-time = "2025-09-02T03:48:40.932Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/ef/aab0b6505ec0acb80c976ace80e4da64aae48a5a694c5839bbada0d9b24a/lance_namespace-0.0.10-py3-none-any.whl", hash = "sha256:b754a89b45e8bd4051b275078b8f98aa7d0dfad6f0f41ef05b2cf217cf2bc604", size = 24305, upload-time = "2025-08-30T16:29:51.575Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/19/d589dcb4d5e85f56417659c97e812afdb8094ce40d57f7a0d8826b299cc4/lance_namespace-0.0.14-py3-none-any.whl", hash = "sha256:905f003f0f0b63a9e02bf5d48f97938c9930ee23c32af568798d5776fb8fc94d", size = 24306, upload-time = "2025-09-02T03:48:40.069Z" },
 ]
 
 [package.optional-dependencies]
@@ -708,7 +708,7 @@ wheels = [
 
 [[package]]
 name = "lance-ray"
-version = "0.0.2"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "lance-namespace", extra = ["dir"] },
@@ -736,7 +736,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lance-namespace", extras = ["dir"], specifier = ">=0.0.10" },
+    { name = "lance-namespace", extras = ["dir"], specifier = ">=0.0.14" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.5.0" },
     { name = "mkdocs-awesome-pages-plugin", marker = "extra == 'docs'", specifier = ">=2.9.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.0.0" },
