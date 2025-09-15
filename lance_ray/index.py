@@ -2,14 +2,12 @@
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
 import logging
-import re
-import time
 import uuid
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import lance
 import pyarrow as pa
-from lance.dataset import Index, LanceDataset
+from lance.dataset import Index, IndexConfig, LanceDataset
 from packaging import version
 from ray.util.multiprocessing import Pool
 
@@ -95,64 +93,6 @@ def _distribute_fragments_balanced(
     return non_empty_batches
 
 
-def generate_default_index_name(column: str, index_type: str, dataset: Optional["lance.LanceDataset"] = None) -> str:
-    """
-    Generate a default index name based on column name and index type
-
-    Args:
-        column: The column name to base the index name on
-        index_type: The type of index (e.g., "INVERTED", "FTS")
-        dataset: Optional Lance dataset to check for existing indices
-
-    Returns:
-        A unique, valid index name
-    """
-    # Normalize the column name
-    if not column:
-        normalized_column = "column"
-    else:
-        # Replace invalid chars with underscores
-        normalized = re.sub(r"[^a-zA-Z0-9_]", "_", column)
-
-        # Collapse multiple underscores
-        normalized = re.sub(r"_+", "_", normalized)
-
-        # Remove leading and trailing underscores
-        normalized = normalized.strip("_")
-
-        # If empty after normalization or starts with a number, use default
-        if not normalized or normalized[0].isdigit():
-            normalized_column = "column"
-        else:
-            normalized_column = normalized
-
-    # Normalize index type
-    normalized_index_type = index_type.lower()
-
-    # Build the base name
-    base_name = f"{normalized_column}_{normalized_index_type}_idx"
-
-    # Check for conflicts if dataset is provided
-    if dataset is not None:
-        try:
-            existing_indices = dataset.list_indices()
-            existing_names = {idx["name"] for idx in existing_indices}
-
-            if base_name in existing_names:
-                # Find the next available suffix number
-                for i in range(2, 1000):
-                    candidate = f"{base_name}_{i}"
-                    if candidate not in existing_names:
-                        return candidate
-
-                # Use timestamp suffix if all numbered options are taken
-                return f"{base_name}_{int(time.time())}"
-        except Exception:
-            # If we can't check existing indices, just return the base name
-            pass
-
-    return base_name
-
 
 def _handle_fragment_index(
     dataset_uri: str,
@@ -160,6 +100,8 @@ def _handle_fragment_index(
     index_type: str,
     name: str,
     fragment_uuid: str,
+    replace: bool,
+    train: bool,
     storage_options: Optional[dict[str, str]] = None,
     **kwargs: Any,
 ):
@@ -209,7 +151,8 @@ def _handle_fragment_index(
                 column=column,
                 index_type=index_type,
                 name=name,
-                replace=False,
+                replace=replace,
+                train=train,
                 fragment_uuid=fragment_uuid,
                 fragment_ids=fragment_ids,
                 **kwargs
@@ -246,8 +189,13 @@ def merge_index_metadata_compat(dataset, index_id, default_index_type="INVERTED"
 def create_scalar_index(
     dataset: Union[str, "lance.LanceDataset"],
     column: str,
-    index_type: str,
+    index_type: Literal["BTREE"] | Literal["BITMAP"] | Literal["LABEL_LIST"] | Literal["INVERTED"] | Literal["FTS"] | Literal["NGRAM"] | Literal["ZONEMAP"] | IndexConfig,
     name: Optional[str] = None,
+    *,
+    replace: bool = True,
+    train: bool = True,
+    fragment_ids: Optional[list[int]] = None,
+    fragment_uuid: Optional[str] = None,
     num_workers: int = 4,
     storage_options: Optional[dict[str, str]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
@@ -263,11 +211,15 @@ def create_scalar_index(
     Args:
         dataset: Lance dataset or URI to build index on
         column: Column name to index
-        index_type: Type of index to build ("INVERTED" or "FTS")
+        index_type: Type of index to build ("BTREE", "BITMAP", "LABEL_LIST", "INVERTED", "FTS", "NGRAM", "ZONEMAP") or IndexConfig object
         name: Name of the index (generated if None)
-        num_workers: Number of Ray workers to use
-        storage_options: Storage options for the dataset
-        ray_remote_args: Options for Ray tasks (e.g., num_cpus, resources)
+        replace: Whether to replace existing index with the same name (default: True)
+        train: Whether to train the index (default: True)
+        fragment_ids: Optional list of fragment IDs to build index on
+        fragment_uuid: Optional fragment UUID for distributed indexing
+        num_workers: Number of Ray workers to use (keyword-only)
+        storage_options: Storage options for the dataset (keyword-only)
+        ray_remote_args: Options for Ray tasks (e.g., num_cpus, resources) (keyword-only)
         **kwargs: Additional arguments to pass to create_scalar_index
 
     Returns:
@@ -309,8 +261,16 @@ def create_scalar_index(
     if num_workers <= 0:
         raise ValueError(f"num_workers must be positive, got {num_workers}")
 
-    if index_type not in ["INVERTED", "FTS"]:
-        raise ValueError(f"Index type must be 'INVERTED' or 'FTS', not '{index_type}'")
+    # Handle index_type validation
+    if isinstance(index_type, str):
+        valid_index_types = ["BTREE", "BITMAP", "LABEL_LIST", "INVERTED", "FTS", "NGRAM", "ZONEMAP"]
+        if index_type not in valid_index_types:
+            raise ValueError(f"Index type must be one of {valid_index_types}, not '{index_type}'")
+        # For distributed indexing, currently only support text-based indexes
+        if index_type not in ["INVERTED", "FTS"]:
+            raise ValueError(f"Distributed indexing currently only supports 'INVERTED' and 'FTS' index types, not '{index_type}'")
+    elif not isinstance(index_type, IndexConfig):
+        raise ValueError(f"index_type must be a string literal or IndexConfig object, got {type(index_type)}")
 
     # Note: Ray initialization is now handled by the Pool, following the pattern from io.py
     # This removes the need for explicit ray.init() calls
@@ -341,18 +301,39 @@ def create_scalar_index(
         raise TypeError(f"Column {column} must be string type, got {value_type}")
 
     if name is None:
-        name = generate_default_index_name(column, index_type, dataset)
+        name = f"{column}_idx"
+
+    # Handle replace parameter - check for existing index with same name
+    if not replace:
+        try:
+            existing_indices = dataset.list_indices()
+            existing_names = {idx["name"] for idx in existing_indices}
+            if name in existing_names:
+                raise ValueError(f"Index with name '{name}' already exists. Set replace=True to replace it.")
+        except Exception:
+            # If we can't check existing indices, continue
+            pass
 
     # Get fragments
     fragments = dataset.get_fragments()
     if not fragments:
         raise ValueError("Dataset contains no fragments")
 
-    fragment_ids = [fragment.fragment_id for fragment in fragments]
+    # Handle fragment_ids parameter - if provided, filter fragments
+    if fragment_ids is not None:
+        available_fragment_ids = {f.fragment_id for f in fragments}
+        invalid_fragments = set(fragment_ids) - available_fragment_ids
+        if invalid_fragments:
+            raise ValueError(f"Fragment IDs {invalid_fragments} do not exist in dataset")
+        # Filter fragments to only include requested ones
+        fragments = [f for f in fragments if f.fragment_id in fragment_ids]
+        fragment_ids_to_use = fragment_ids
+    else:
+        fragment_ids_to_use = [fragment.fragment_id for fragment in fragments]
 
     # Adjust num_workers if needed
-    if num_workers > len(fragment_ids):
-        num_workers = len(fragment_ids)
+    if num_workers > len(fragment_ids_to_use):
+        num_workers = len(fragment_ids_to_use)
         logger.info(f"Adjusted num_workers to {num_workers} to match fragment count")
 
     # Distribute fragments to workers using balanced distribution algorithm
@@ -371,6 +352,8 @@ def create_scalar_index(
         index_type=index_type,
         name=name,
         fragment_uuid=index_id,
+        replace=replace,
+        train=train,
         storage_options=storage_options,
         **kwargs,
     )
@@ -420,7 +403,7 @@ def create_scalar_index(
         name=name,
         fields=fields,
         dataset_version=dataset.version,
-        fragment_ids=set(fragment_ids),
+        fragment_ids=set(fragment_ids_to_use),
         index_version=0,
     )
 
@@ -438,5 +421,5 @@ def create_scalar_index(
     )
 
     logger.info(f"Successfully created distributed index '{name}' with three-phase workflow")
-    logger.info(f"Index ID: {index_id}, Fragments: {len(fragment_ids)}, Workers: {len(fragment_batches)}")
+    logger.info(f"Index ID: {index_id}, Fragments: {len(fragment_ids_to_use)}, Workers: {len(fragment_batches)}")
     return updated_dataset

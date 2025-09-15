@@ -25,8 +25,8 @@ def check_lance_version_compatibility():
 pytestmark = pytest.mark.skipif(
     not check_lance_version_compatibility(),
     reason="Distributed indexing requires pylance >= 0.36.0. Current version: {}".format(
-        getattr(lance, '__version__', 'unknown')
-    )
+        getattr(lance, "__version__", "unknown")
+    ),
 )
 
 
@@ -62,7 +62,16 @@ def text_data():
                 "Ray framework enables parallel processing",
                 "Lance format provides efficient storage",
             ],
-            "category": ["animals", "tech", "ml", "data", "nlp", "distributed", "ray", "storage"],
+            "category": [
+                "animals",
+                "tech",
+                "ml",
+                "data",
+                "nlp",
+                "distributed",
+                "ray",
+                "storage",
+            ],
         }
     )
 
@@ -95,11 +104,13 @@ def generate_multi_fragment_dataset(tmp_path, num_fragments=4, rows_per_fragment
     for frag_idx in range(num_fragments):
         for row_idx in range(rows_per_fragment):
             row_id = frag_idx * rows_per_fragment + row_idx
-            all_data.append({
-                "id": row_id,
-                "text": f"This is test document {row_id} with some sample text content for fragment {frag_idx}",
-                "fragment_id": frag_idx,
-            })
+            all_data.append(
+                {
+                    "id": row_id,
+                    "text": f"This is test document {row_id} with some sample text content for fragment {frag_idx}",
+                    "fragment_id": frag_idx,
+                }
+            )
 
     df = pd.DataFrame(all_data)
     dataset = ray.data.from_pandas(df)
@@ -137,7 +148,9 @@ class TestDistributedIndexing:
                 break
 
         assert text_index is not None, "Text index not found"
-        assert text_index["type"] == "Inverted", f"Expected Inverted index, got {text_index['type']}"
+        assert text_index["type"] == "Inverted", (
+            f"Expected Inverted index, got {text_index['type']}"
+        )
 
     def test_build_distributed_fts_index_with_name(self, multi_fragment_lance_dataset):
         """Test building distributed index with custom name."""
@@ -156,9 +169,13 @@ class TestDistributedIndexing:
         # Verify the index was created with correct name
         indices = updated_dataset.list_indices()
         index_names = [idx["name"] for idx in indices]
-        assert custom_name in index_names, f"Custom index name '{custom_name}' not found in {index_names}"
+        assert custom_name in index_names, (
+            f"Custom index name '{custom_name}' not found in {index_names}"
+        )
 
-    def test_build_distributed_fts_index_search_functionality(self, multi_fragment_lance_dataset):
+    def test_build_distributed_fts_index_search_functionality(
+        self, multi_fragment_lance_dataset
+    ):
         """Test that the built index actually works for searching."""
         dataset_uri = multi_fragment_lance_dataset
 
@@ -182,7 +199,9 @@ class TestDistributedIndexing:
 
         # Verify results contain the search term
         text_results = results.column("text").to_pylist()
-        assert any(search_term in text for text in text_results), "Search results don't contain the search term"
+        assert any(search_term in text for text in text_results), (
+            "Search results don't contain the search term"
+        )
 
     def test_build_distributed_fts_index_fts_type(self, multi_fragment_lance_dataset):
         """Test building distributed FTS index."""
@@ -240,11 +259,16 @@ class TestDistributedIndexing:
                 num_workers=2,
             )
 
-    def test_build_distributed_index_invalid_index_type(self, multi_fragment_lance_dataset):
+    def test_build_distributed_index_invalid_index_type(
+        self, multi_fragment_lance_dataset
+    ):
         """Test error handling for invalid index type."""
         dataset_uri = multi_fragment_lance_dataset
 
-        with pytest.raises(ValueError, match="Index type must be 'INVERTED' or 'FTS'"):
+        with pytest.raises(
+            ValueError,
+            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID'",
+        ):
             lr.create_scalar_index(
                 dataset=dataset_uri,
                 column="text",
@@ -252,7 +276,9 @@ class TestDistributedIndexing:
                 num_workers=2,
             )
 
-    def test_build_distributed_index_invalid_num_workers(self, multi_fragment_lance_dataset):
+    def test_build_distributed_index_invalid_num_workers(
+        self, multi_fragment_lance_dataset
+    ):
         """Test error handling for invalid num_workers."""
         dataset_uri = multi_fragment_lance_dataset
 
@@ -279,11 +305,13 @@ class TestDistributedIndexing:
     def test_build_distributed_index_non_string_column(self, temp_dir):
         """Test error handling for non-string column."""
         # Create dataset with non-string column
-        data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "numeric_col": [10, 20, 30, 40],
-            "text": ["text1", "text2", "text3", "text4"],
-        })
+        data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "numeric_col": [10, 20, 30, 40],
+                "text": ["text1", "text2", "text3", "text4"],
+            }
+        )
         dataset = ray.data.from_pandas(data)
         path = Path(temp_dir) / "non_string_test.lance"
         lr.write_lance(dataset, str(path), max_rows_per_file=2)
@@ -296,7 +324,9 @@ class TestDistributedIndexing:
                 num_workers=2,
             )
 
-    def test_build_distributed_index_with_ray_remote_args(self, multi_fragment_lance_dataset):
+    def test_build_distributed_index_with_ray_remote_args(
+        self, multi_fragment_lance_dataset
+    ):
         """Test building distributed index with Ray options."""
         dataset_uri = multi_fragment_lance_dataset
 
@@ -313,7 +343,9 @@ class TestDistributedIndexing:
         indices = updated_dataset.list_indices()
         assert len(indices) > 0, "No indices found after building"
 
-    def test_build_distributed_index_with_storage_options(self, multi_fragment_lance_dataset):
+    def test_build_distributed_index_with_storage_options(
+        self, multi_fragment_lance_dataset
+    ):
         """Test building distributed index with storage options."""
         dataset_uri = multi_fragment_lance_dataset
 
@@ -363,13 +395,111 @@ class TestDistributedIndexing:
         indices = updated_dataset.list_indices()
         assert len(indices) > 0, "No indices found after building"
 
+    def test_build_distributed_index_replace_false_existing_index(
+        self, multi_fragment_lance_dataset
+    ):
+        """Test that replace=False raises error when trying to create index with existing name."""
+        dataset_uri = multi_fragment_lance_dataset
+        index_name = "test_replace_false_index"
+
+        # First, create an index
+        updated_dataset = lr.create_scalar_index(
+            dataset=dataset_uri,
+            column="text",
+            index_type="INVERTED",
+            name=index_name,
+            num_workers=2,
+        )
+
+        # Verify the index was created
+        indices = updated_dataset.list_indices()
+        assert len(indices) > 0, "Initial index creation failed"
+
+        # Now try to create another index with the same name but replace=False
+        # The error might be raised as RuntimeError during distributed processing
+        with pytest.raises((ValueError, RuntimeError)) as exc_info:
+            lr.create_scalar_index(
+                dataset=dataset_uri,
+                column="text",
+                index_type="INVERTED",
+                name=index_name,
+                replace=False,
+                num_workers=2,
+            )
+
+        # Verify the error message contains information about existing index
+        error_msg = str(exc_info.value)
+        assert "already exists" in error_msg and index_name in error_msg
+
+    def test_build_distributed_index_replace_true_overwrite_existing(
+        self, multi_fragment_lance_dataset
+    ):
+        """Test that replace=True successfully overwrites existing index."""
+        dataset_uri = multi_fragment_lance_dataset
+        index_name = "test_replace_true_index"
+
+        # First, create an index
+        updated_dataset = lr.create_scalar_index(
+            dataset=dataset_uri,
+            column="text",
+            index_type="INVERTED",
+            name=index_name,
+            num_workers=2,
+        )
+
+        # Verify the index was created
+        initial_indices = updated_dataset.list_indices()
+        assert len(initial_indices) > 0, "Initial index creation failed"
+
+        # Find our initial index
+        initial_index = None
+        for idx in initial_indices:
+            if idx["name"] == index_name:
+                initial_index = idx
+                break
+        assert initial_index is not None, "Initial index not found"
+
+        # Now create another index with the same name but replace=True
+        updated_dataset = lr.create_scalar_index(
+            dataset=dataset_uri,
+            column="text",
+            index_type="INVERTED",
+            name=index_name,
+            replace=True,
+            num_workers=2,
+        )
+
+        # Verify the index still exists (should have been replaced)
+        final_indices = updated_dataset.list_indices()
+        final_index = None
+        for idx in final_indices:
+            if idx["name"] == index_name:
+                final_index = idx
+                break
+
+        assert final_index is not None, "Index should still exist after replacement"
+        assert final_index["type"] == "Inverted", "Index type should remain Inverted"
+
+        # Test that the replaced index still works for searching
+        search_term = "Python"
+        results = updated_dataset.scanner(
+            full_text_query=search_term,
+            columns=["id", "text"],
+        ).to_table()
+
+        assert results.num_rows > 0, (
+            f"No results found for search term '{search_term}' after index replacement"
+        )
+
     def test_build_distributed_index_auto_adjust_workers(self, temp_dir):
         """Test that num_workers is automatically adjusted if it exceeds fragment count."""
         # Create dataset with only 2 fragments
-        data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "text": ["text1", "text2", "text3", "text4"],
-        })
+        data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "text": ["text1", "text2", "text3", "text4"],
+            }
+        )
         dataset = ray.data.from_pandas(data)
         path = Path(temp_dir) / "small_dataset.lance"
         lr.write_lance(dataset, str(path), max_rows_per_file=2)
@@ -387,52 +517,7 @@ class TestDistributedIndexing:
         assert len(indices) > 0, "No indices found after building"
 
 
-class TestIndexNameGeneration:
-    """Test cases for index name generation functionality."""
 
-    def test_generate_default_index_name_basic(self):
-        """Test basic index name generation."""
-        from lance_ray.index import generate_default_index_name
-
-        name = generate_default_index_name("text", "INVERTED")
-        assert name == "text_inverted_idx"
-
-    def test_generate_default_index_name_special_chars(self):
-        """Test index name generation with special characters."""
-        from lance_ray.index import generate_default_index_name
-
-        name = generate_default_index_name("text-column.name", "FTS")
-        assert name == "text_column_name_fts_idx"
-
-    def test_generate_default_index_name_empty_column(self):
-        """Test index name generation with empty column name."""
-        from lance_ray.index import generate_default_index_name
-
-        name = generate_default_index_name("", "INVERTED")
-        assert name == "column_inverted_idx"
-
-    def test_generate_default_index_name_numeric_start(self):
-        """Test index name generation with column starting with number."""
-        from lance_ray.index import generate_default_index_name
-
-        name = generate_default_index_name("123column", "INVERTED")
-        assert name == "column_inverted_idx"
-
-    def test_generate_default_index_name_with_dataset_conflict(self, multi_fragment_lance_dataset):
-        """Test index name generation with existing index conflicts."""
-        from lance_ray.index import generate_default_index_name
-
-        dataset = lance.dataset(multi_fragment_lance_dataset)
-
-        # First call should return base name
-        name1 = generate_default_index_name("text", "INVERTED", dataset)
-        assert name1 == "text_inverted_idx"
-
-        # Mock existing indices by creating a dataset with an index
-        # (This is a simplified test - in real scenario we'd have actual indices)
-        name2 = generate_default_index_name("text", "INVERTED", dataset)
-        # Should still return base name since no actual conflicts exist
-        assert name2 == "text_inverted_idx"
 
 class TestDistributedIndexingNewAPI:
     """Test cases for the new distributed indexing API from PR #4578."""
@@ -468,7 +553,9 @@ class TestDistributedIndexingNewAPI:
                 our_index = idx
                 break
 
-        assert our_index is not None, "Index 'new_api_test_idx' not found in indices list"
+        assert our_index is not None, (
+            "Index 'new_api_test_idx' not found in indices list"
+        )
         assert our_index["type"] == "Inverted", (
             f"Expected Inverted index, got {our_index['type']}"
         )
@@ -486,8 +573,6 @@ class TestDistributedIndexingNewAPI:
 
         print(f"Search for '{search_word}' returned {results.num_rows} results")
         assert results.num_rows > 0, f"No results found for search term '{search_word}'"
-
-
 
     def test_distributed_index_with_fragment_uuid(self, temp_dir):
         """
@@ -543,7 +628,10 @@ class TestDistributedIndexingNewAPI:
             )
 
         # Test with invalid index type
-        with pytest.raises(ValueError, match="Index type must be 'INVERTED' or 'FTS'"):
+        with pytest.raises(
+            ValueError,
+            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID_TYPE'",
+        ):
             lr.create_scalar_index(
                 dataset=ds,
                 column="text",
