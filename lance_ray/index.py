@@ -180,9 +180,9 @@ def _handle_fragment_index(
 
     return func
 
-def merge_index_metadata_compat(dataset, index_id, default_index_type="INVERTED"):
+def merge_index_metadata_compat(dataset, index_id, index_type, **kwargs):
     try:
-        return dataset.merge_index_metadata(index_id, default_index_type)
+        return dataset.merge_index_metadata(index_id, index_type, batch_readhead=kwargs.get("batch_readhead"))
     except TypeError:
         return dataset.merge_index_metadata(index_id)
 
@@ -202,7 +202,7 @@ def create_scalar_index(
     **kwargs: Any,
 ) -> "lance.LanceDataset":
     """
-    Build a distributed full-text search index using Ray.
+    Build scalar indices with Ray in a distributed workflow (supports FTS/INVERTED and BTREE).
 
     This function distributes the index building process across multiple Ray workers,
     with each worker building indices for a subset of fragments. The indices are then
@@ -266,9 +266,14 @@ def create_scalar_index(
         valid_index_types = ["BTREE", "BITMAP", "LABEL_LIST", "INVERTED", "FTS", "NGRAM", "ZONEMAP"]
         if index_type not in valid_index_types:
             raise ValueError(f"Index type must be one of {valid_index_types}, not '{index_type}'")
-        # For distributed indexing, currently only support text-based indexes
-        if index_type not in ["INVERTED", "FTS"]:
-            raise ValueError(f"Distributed indexing currently only supports 'INVERTED' and 'FTS' index types, not '{index_type}'")
+
+        # Validate distributed indexing support
+        supported_distributed_types = {"INVERTED", "FTS", "BTREE"}
+        if index_type not in supported_distributed_types:
+            raise ValueError(
+                f"Distributed indexing currently supports {sorted(supported_distributed_types)} index types, "
+                f"not '{index_type}'"
+            )
     elif not isinstance(index_type, IndexConfig):
         raise ValueError(f"index_type must be a string literal or IndexConfig object, got {type(index_type)}")
 
@@ -292,13 +297,28 @@ def create_scalar_index(
     if storage_options is None:
         storage_options = dataset._storage_options
 
-    # Check column type
+    # Check column type according to index type
     value_type = field.type
     if pa.types.is_list(field.type) or pa.types.is_large_list(field.type):
         value_type = field.type.value_type
 
-    if not pa.types.is_string(value_type) and not pa.types.is_large_string(value_type):
-        raise TypeError(f"Column {column} must be string type, got {value_type}")
+    # Validate column type based on index type requirements
+    if isinstance(index_type, str):
+        match index_type:
+            case "INVERTED" | "FTS":
+                # Text-based indexes require string types
+                if not pa.types.is_string(value_type):
+                    raise TypeError(f"Column {column} must be string type for {index_type} index, got {value_type}")
+            case "BTREE":
+                # B-Tree indexes support both numeric and string types
+                is_supported = (pa.types.is_integer(value_type) or
+                               pa.types.is_floating(value_type) or
+                               pa.types.is_string(value_type))
+                if not is_supported:
+                    raise TypeError(f"Column {column} must be numeric or string type for BTREE index, got {value_type}")
+            case _:
+                # For other index types, skip strict validation to maintain compatibility
+                pass
 
     if name is None:
         name = f"{column}_idx"
@@ -385,7 +405,7 @@ def create_scalar_index(
 
     # Phase 2: Merge index metadata using the distributed API
     logger.info(f"Phase 2: Merging index metadata for index ID: {index_id}")
-    merge_index_metadata_compat(dataset, index_id)
+    merge_index_metadata_compat(dataset, index_id, index_type=index_type, **kwargs)
 
     # Phase 3: Create Index object and commit the operation
     logger.info(f"Phase 3: Creating and committing index '{name}'")

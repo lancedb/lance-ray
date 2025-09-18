@@ -5,7 +5,7 @@ Lance-Ray provides distributed index building functionality that leverages Ray's
 
 ## New Distributed APIs
 
-`create_scalar_index()` - Distributedly create scalar index index using ray. Currently only Inverted/FTS are supported. Will add more index type support in the future.
+`create_scalar_index()` - Distributedly create scalar index index using ray. Currently only Inverted/FTS/BTREE are supported. Will add more index type support in the future.
 
 ### How It Works
 The `create_scalar_index` function allows you to create full-text search indices for Lance datasets using the Ray distributed computing framework. This function distributes the index building process across multiple Ray worker nodes, with each node responsible for building indices for a subset of dataset fragments. These indices are then merged and committed as a single index.
@@ -62,7 +62,7 @@ def create_scalar_index(
 | `ray_remote_args` | `Dict[str, Any]`, optional | Ray task options (e.g., `num_cpus`, `resources`) |
 | `**kwargs` | `Any` | Additional arguments passed to `create_scalar_index` |
 
-**Note:** For distributed indexing, currently only `"INVERTED"` and `"FTS"` index types are supported.
+**Note:** For distributed indexing, currently only `"INVERTED"`,`"FTS"` and `"BTREE"` index types are supported.
 
 ### Return Value
 
@@ -71,8 +71,7 @@ The function returns an updated Lance dataset with the newly created index.
 
 ## Examples
 
-### Basic Usage
-
+### FTS Index
 ```python
 import lance
 import lance_ray as lr
@@ -99,6 +98,25 @@ results = updated_dataset.scanner(
 ).to_table()
 print(f"Search results: {results}")
 ```
+### BTREE Index
+```python
+# Assume a LanceDataset with a numeric column "id" exists at this path
+import lance_ray as lr
+
+updated_dataset = lr.create_scalar_index(
+    dataset="path/to/dataset",
+    column="id",
+    index_type="BTREE",
+    name="btree_multiple_fragment_idx",
+    replace=False,
+    num_workers=4,
+)
+
+# Example queries
+updated_dataset.scanner(filter="id = 100", columns=["id", "text"]).to_table()
+updated_dataset.scanner(filter="id >= 200 AND id < 800", columns=["id", "text"]).to_table()
+```
+
 
 ### Custom Index Name
 
@@ -171,7 +189,7 @@ except ValueError as e:
 
 ### Important Notes
 
-- **Index Type Support**: For distributed indexing, currently only `"INVERTED"` and `"FTS"` index types are supported, even though the function signature accepts other index types.
+- **Index Type Support**: For distributed indexing, currently only `"INVERTED"`/`"FTS"`/`"BTREE"` index types are supported, even though the function signature accepts other index types.
 - **Default Behavior**: The `replace` parameter defaults to `True`, meaning existing indices with the same name will be replaced without warning. Set `replace=False` to prevent accidental overwrites.
 - **Fragment Selection**: Use `fragment_ids` parameter to build indices on specific fragments only. This is useful for incremental index building or testing.
 - **Error Handling**: When `replace=False` and an index with the same name exists, a `ValueError` or `RuntimeError` will be raised depending on the execution context.
