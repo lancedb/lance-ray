@@ -20,7 +20,6 @@ def check_lance_version_compatibility():
     except (AttributeError, Exception):
         return False
 
-
 # Skip all distributed indexing tests if lance version is incompatible
 pytestmark = pytest.mark.skipif(
     not check_lance_version_compatibility(),
@@ -517,11 +516,6 @@ class TestDistributedIndexing:
         assert len(indices) > 0, "No indices found after building"
 
 
-
-
-class TestDistributedIndexingNewAPI:
-    """Test cases for the new distributed indexing API from PR #4578."""
-
     def test_distributed_fts_index_new_api(self, temp_dir):
         """
         Test distributed FTS index building using the new API from PR #4578.
@@ -637,4 +631,123 @@ class TestDistributedIndexingNewAPI:
                 column="text",
                 index_type="INVALID_TYPE",
                 num_workers=2,
+            )
+
+def check_btree_version_compatibility():
+    """Check if lance version supports distributed B-tree indexing (>= 0.37.0)."""
+    try:
+        lance_version = version.parse(lance.__version__)
+        btree_min_version = version.parse("0.37.0")
+        return lance_version >= btree_min_version
+    except (AttributeError, Exception):
+        return False
+
+@pytest.mark.skipif(
+    not check_btree_version_compatibility(),
+    reason="B-tree indexing requires pylance >= 0.37.0. Current version: {}".format(
+        getattr(lance, "__version__", "unknown")
+    ),
+)
+class TestDistributedBTreeIndexing:
+    """Distributed BTREE indexing tests using the unified lr.create_scalar_index entrypoint."""
+
+    def test_distributed_btree_index_basic(self, temp_dir):
+        """Build a distributed BTREE index and verify search works and type is BTree."""
+        ds = generate_multi_fragment_dataset(temp_dir, num_fragments=3, rows_per_fragment=500)
+
+        updated_dataset = lr.create_scalar_index(
+            dataset=ds,
+            column="id",
+            index_type="BTREE",
+            name="btree_multiple_fragment_idx",
+            replace=False,
+            num_workers=3,
+        )
+
+        # Verify index
+        indices = updated_dataset.list_indices()
+        assert len(indices) > 0, "No indices found after distributed BTREE build"
+
+        our_index = None
+        for idx in indices:
+            if idx["name"] == "btree_multiple_fragment_idx":
+                our_index = idx
+                break
+        assert our_index is not None, "BTREE index not found by name"
+        assert our_index["type"] == "BTree", f"Expected BTree index, got {our_index['type']}"
+
+        # Spot-check equality and range queries
+        eq_id = 100
+        eq_tbl = updated_dataset.scanner(filter=f"id = {eq_id}", columns=["id", "text"]).to_table()
+        assert eq_tbl.num_rows == 1
+
+        rg_tbl = updated_dataset.scanner(
+            filter="id >= 200 AND id < 800",
+            columns=["id", "text"],
+        ).to_table()
+        assert rg_tbl.num_rows > 0
+
+    @pytest.fixture
+    def btree_comp_datasets(self, tmp_path):
+        """Build two datasets: one with a distributed BTREE index and one without index as baseline."""
+        with_index = generate_multi_fragment_dataset(tmp_path / "with_index", num_fragments=3, rows_per_fragment=500)
+        without_index = generate_multi_fragment_dataset(tmp_path / "without_index", num_fragments=3, rows_per_fragment=500)
+
+        # Build BTREE index on the first dataset using unified API
+        with_index = lr.create_scalar_index(
+            dataset=with_index,
+            column="id",
+            index_type="BTREE",
+            name="btree_comp_idx",
+            replace=True,
+            num_workers=2,
+        )
+
+        return {"with_index": with_index, "without_index": without_index}
+
+    @pytest.mark.parametrize(
+        "test_name,filter_expr",
+        [
+            ("First value", "id = 0"),
+            ("Fragment 0 last value", "id = 499"),
+            ("Fragment 1 first value", "id = 500"),
+            ("Fragment 1 last value", "id = 999"),
+            ("Fragment 2 first value", "id = 1000"),
+            ("Last value", "id = 1499"),
+            ("Fragment 0 middle", "id = 250"),
+            ("Fragment 1 middle", "id = 750"),
+            ("Fragment 2 middle", "id = 1250"),
+            ("Range within fragment 0", "id >= 10 AND id < 20"),
+            ("Range within fragment 1", "id >= 510 AND id < 520"),
+            ("Range within fragment 2", "id >= 1010 AND id < 1020"),
+            ("Cross fragment 0-1", "id >= 495 AND id < 505"),
+            ("Cross fragment 1-2", "id >= 995 AND id < 1005"),
+            ("Cross all fragments", "id >= 250 AND id < 1250"),
+            ("Non-existent small value", "id = -1"),
+            ("Non-existent large value", "id = 2000"),
+            ("Large range", "id >= 0 AND id < 1500"),
+            ("Less than boundary", "id < 500"),
+            ("Greater than boundary", "id > 999"),
+            ("Less than or equal", "id <= 505"),
+            ("Greater than or equal", "id >= 995"),
+        ],
+    )
+    def test_btree_query_results_match_baseline(self, btree_comp_datasets, test_name, filter_expr):
+        """Compare query results between an indexed dataset and an identical baseline dataset without index."""
+        with_index = btree_comp_datasets["with_index"]
+        without_index = btree_comp_datasets["without_index"]
+
+        res_idx = with_index.scanner(filter=filter_expr, columns=["id", "text"]).to_table()
+        res_base = without_index.scanner(filter=filter_expr, columns=["id", "text"]).to_table()
+
+        assert res_idx.num_rows == res_base.num_rows, (
+            f"Test '{test_name}' failed: indexed returned {res_idx.num_rows} rows, "
+            f"baseline returned {res_base.num_rows} rows for filter: {filter_expr}"
+        )
+
+        if res_idx.num_rows > 0:
+            ids_idx = sorted(res_idx.column("id").to_pylist())
+            ids_base = sorted(res_base.column("id").to_pylist())
+            assert ids_idx == ids_base, (
+                f"Test '{test_name}' failed: indexed and baseline results differ for filter: {filter_expr}"
             )
