@@ -12,10 +12,11 @@ __email__ = "dev@lancedb.com"
 # Main imports
 from .index import create_scalar_index
 from .io import add_columns, read_lance, write_lance
+
+# Fragment API imports
 from .fragment import (
     LanceFragmentWriter,
     LanceCommitter,
-    write_lance,
     execute_fragment_operation,
     add_columns as add_columns_distributed,
     DispatchFragmentTasks,

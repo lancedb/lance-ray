@@ -33,12 +33,12 @@ if TYPE_CHECKING:
 __all__ = [
     "LanceFragmentWriter",
     "LanceCommitter",
-    "write_lance",
     "execute_fragment_operation",
     "add_columns",
     "DispatchFragmentTasks",
     "FragmentTask",
     "AddColumnTask",
+    "_register_hooks",
 ]
 
 # ==============================================================================
@@ -529,64 +529,6 @@ class LanceCommitter(_BaseLanceDatasink):
         return v
 
 
-def write_lance(
-    data: ray.data.Dataset,
-    output_uri: str,
-    *,
-    schema: Optional[pa.Schema] = None,
-    mode: Literal["create", "append", "overwrite"] = "create",
-    transform: Optional[
-        Callable[[pa.Table], Union[pa.Table, Generator[None, pa.Table, None]]]
-    ] = None,
-    max_rows_per_file: int = 1024 * 1024,
-    max_bytes_per_file: Optional[int] = None,
-    storage_options: Optional[Dict[str, Any]] = None,
-    data_storage_version: Optional[str] = None,
-) -> None:
-    """Write Ray dataset at scale.
-
-    This method wraps the `LanceFragmentWriter` and `LanceCommitter` to write
-    large-than-memory ray data to lance files.
-
-    Parameters
-    ----------
-    data : ray.data.Dataset
-        The dataset to write.
-    output_uri : str
-        The output dataset URI.
-    transform : Callable[[pa.Table], Union[pa.Table, Generator]], optional
-        A callable to transform the input batch. Default is identity function.
-    schema : pyarrow.Schema, optional
-        If provided, the schema of the dataset. Otherwise, it will be inferred.
-    max_rows_per_file: int, optional
-        The maximum number of rows per file. Default is 1024 * 1024.
-    max_bytes_per_file: int, optional
-        The maximum number of bytes per file. Default is 90GB.
-    storage_options : Dict[str, Any], optional
-        The storage options for the writer. Default is None.
-    data_storage_version: optional, str, default None
-        The version of the data storage format to use. Newer versions are more
-        efficient but require newer versions of lance to read.  The default
-        (None) will use the 2.0 version.  See the user guide for more details.
-    """
-    data.map_batches(
-        LanceFragmentWriter(
-            output_uri,
-            schema=schema,
-            transform=transform,
-            max_rows_per_file=max_rows_per_file,
-            max_bytes_per_file=max_bytes_per_file,
-            storage_options=storage_options,
-            data_storage_version=data_storage_version,
-        ),
-        batch_size=max_rows_per_file,
-    ).write_datasink(
-        LanceCommitter(
-            output_uri, schema=schema, mode=mode, storage_options=storage_options
-        )
-    )
-
-
 def _register_hooks():
     """Register lance hook to Ray for better integration.
 
@@ -596,7 +538,7 @@ def _register_hooks():
     ```python
     import ray
     import lance
-    from lance_ray.fragment import _register_hooks
+    from lance_ray import _register_hooks
 
     _register_hooks()
 
@@ -605,4 +547,5 @@ def _register_hooks():
         .write_lance("~/data.lance")
     ```
     """
+    from .io import write_lance
     ray.data.Dataset.write_lance = write_lance

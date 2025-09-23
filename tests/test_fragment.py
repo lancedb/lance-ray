@@ -183,7 +183,7 @@ class TestRayHooks:
         (
             ray.data.range(10)
             .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
-            .write_lance(tmp_path, schema=schema)
+            .write_lance(str(tmp_path), schema=schema)
         )
 
         # Verify the dataset
@@ -194,29 +194,6 @@ class TestRayHooks:
         assert sorted(tbl["id"].to_pylist()) == list(range(10))
         assert set(tbl["str"].to_pylist()) == set([f"str-{i}" for i in range(10)])
 
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_hooks_write_lance_with_transform(self, tmp_path: Path):
-        """Test write_lance with transform after registering hooks."""
-        _register_hooks()
-
-        def transform(batch: pa.Table) -> pa.Table:
-            """Add a new column with doubled values."""
-            df = batch.to_pandas()
-            df["doubled"] = df["id"] * 2
-            return pa.Table.from_pandas(df)
-
-        (
-            ray.data.range(5)
-            .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
-            .write_lance(tmp_path, transform=transform)
-        )
-
-        # Verify the dataset
-        ds = lance.dataset(tmp_path)
-        assert ds.count_rows() == 5
-        tbl = ds.to_table()
-        assert "doubled" in tbl.column_names
-        assert tbl.column("doubled").to_pylist() == [0, 2, 4, 6, 8]
 
 
 class TestDistributedAddColumns:
@@ -249,7 +226,7 @@ class TestDistributedAddColumns:
             ray.data.range(11)
             .repartition(1)
             .map(lambda x: {"id": x["id"], "height": (x["id"] + 5), "weight": x["id"]})
-            .write_lance(tmp_path, schema=schema)
+            .write_lance(str(tmp_path), schema=schema)
         )
 
         # Add columns using distributed fragment API
@@ -288,7 +265,7 @@ class TestDistributedAddColumns:
         (
             ray.data.range(20)
             .map(lambda x: {"id": x["id"], "value": x["id"] + 1})
-            .write_lance(tmp_path, schema=schema, max_rows_per_file=5)
+            .write_lance(str(tmp_path), schema=schema, max_rows_per_file=5)
         )
 
         # Verify we have multiple fragments
