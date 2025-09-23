@@ -72,7 +72,7 @@ RecordBatchTransformer = Callable[[pa.RecordBatch], pa.RecordBatch]
 # ==============================================================================
 # Imports from other modules
 # ==============================================================================
-from .datasink import _write_fragment
+from .datasink import _write_fragment, _BaseLanceDatasink
 from .pandas import pd_to_arrow
 
 
@@ -205,97 +205,6 @@ def execute_fragment_operation(
     task_dispatcher.commit_results(results)
 
 
-
-
-# ==============================================================================
-# Base Lance Datasink
-# ==============================================================================
-class _BaseLanceDatasink(ray.data.Datasink):
-    """Base Lance Ray Datasink."""
-
-    def __init__(
-        self,
-        uri: str,
-        schema: Optional[pa.Schema] = None,
-        mode: Literal["create", "append", "overwrite"] = "create",
-        storage_options: Optional[Dict[str, Any]] = None,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-
-        self.uri = uri
-        self.schema = schema
-        self.mode = mode
-
-        self.read_version: int | None = None
-        self.storage_options = storage_options
-
-    @property
-    def supports_distributed_writes(self) -> bool:
-        return True
-
-    def on_write_start(self):
-        if self.mode == "append":
-            ds = lance.LanceDataset(self.uri, storage_options=self.storage_options)
-            self.read_version = ds.version
-            if self.schema is None:
-                self.schema = ds.schema
-
-    def on_write_complete(
-        self,
-        write_results: List[List[Tuple[str, str]]],
-    ):
-        if not write_results:
-            warnings.warn(
-                "write_results is empty.",
-                DeprecationWarning,
-            )
-            return
-        if (
-            not isinstance(write_results, list)
-            or not isinstance(write_results[0], list)
-        ) and not hasattr(write_results, "write_returns"):
-            warnings.warn(
-                "write_results type is wrong. please check version, "
-                "upgrade or downgrade your ray version. ray versions >= 2.38 "
-                "and < 2.41 are unable to write Lance datasets, check ray PR "
-                "https://github.com/ray-project/ray/pull/49251 in your "
-                "ray version. ",
-                DeprecationWarning,
-            )
-            return
-        if hasattr(write_results, "write_returns"):
-            write_results = write_results.write_returns
-
-        if len(write_results) == 0:
-            warnings.warn(
-                "write results is empty. please check ray version or internal error",
-                DeprecationWarning,
-            )
-            return
-
-        fragments = []
-        schema = None
-        for batch in write_results:
-            for fragment_str, schema_str in batch:
-                fragment = pickle.loads(fragment_str)
-                fragments.append(fragment)
-                schema = pickle.loads(schema_str)
-        # Check weather writer has fragments or not.
-        # Skip commit when there are no fragments.
-        if not schema:
-            return
-        if self.mode in set(["create", "overwrite"]):
-            op = lance.LanceOperation.Overwrite(schema, fragments)
-        elif self.mode == "append":
-            op = lance.LanceOperation.Append(fragments)
-        lance.LanceDataset.commit(
-            self.uri,
-            op,
-            read_version=self.read_version,
-            storage_options=self.storage_options,
-        )
 
 
 # ==============================================================================
