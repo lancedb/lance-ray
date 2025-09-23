@@ -381,14 +381,6 @@ class LanceFragmentWriter:
         if not isinstance(transformed, Generator):
             transformed = (t for t in [transformed])
 
-        # Use default retry params similar to LanceDatasink
-        retry_params = {
-            "description": "write lance fragments",
-            "match": ["LanceError(IO)"],
-            "max_attempts": 10,
-            "max_backoff_s": 32,
-        }
-
         fragments = _write_fragment(
             transformed,
             self.uri,
@@ -398,7 +390,7 @@ class LanceFragmentWriter:
             max_bytes_per_file=self.max_bytes_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
-            retry_params=retry_params,
+            # retry_params defaults to None, which will use minimal retry settings
         )
         return pa.Table.from_pydict(
             {

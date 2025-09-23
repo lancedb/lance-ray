@@ -63,6 +63,16 @@ def _write_fragment(
     )
 
     reader = pa.RecordBatchReader.from_batches(schema, record_batch_converter())
+
+    # Use default retry params if not provided
+    if retry_params is None:
+        retry_params = {
+            "description": "write lance fragments",
+            "match": [],
+            "max_attempts": 1,
+            "max_backoff_s": 0,
+        }
+
     fragments = call_with_retry(
         lambda: write_fragments(
             reader,
@@ -74,7 +84,7 @@ def _write_fragment(
             data_storage_version=data_storage_version,
             storage_options=storage_options,
         ),
-        **(retry_params or {}),
+        **retry_params,
     )
     return [(fragment, schema) for fragment in fragments]
 
