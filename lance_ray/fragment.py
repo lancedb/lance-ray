@@ -34,7 +34,6 @@ __all__ = [
     "LanceFragmentWriter",
     "LanceCommitter",
     "execute_fragment_operation",
-    "add_columns",
     "DispatchFragmentTasks",
     "FragmentTask",
     "AddColumnTask",
@@ -279,28 +278,6 @@ def execute_fragment_operation(
     task_dispatcher.commit_results(results)
 
 
-def add_columns(
-    dataset: lance.LanceDataset,
-    column_generator: RecordBatchTransformer,
-    source_columns: List[str],
-) -> None:
-    """
-    Add new columns to a Lance dataset through distributed processing.
-
-    Args:
-        dataset: Target dataset for column addition
-        column_generator: Function generating new column values
-        source_columns: Existing columns required for generation
-    """
-    dispatcher = DispatchFragmentTasks(dataset)
-    execute_fragment_operation(
-        dispatcher,
-        value_function=column_generator,
-        operation_parameters={
-            READ_COLUMNS_KEY: source_columns,
-            ACTION_KEY: ADD_COLUMN_ACTION,
-        },
-    )
 
 
 # ==============================================================================

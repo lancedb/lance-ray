@@ -11,7 +11,6 @@ import ray
 from lance_ray.fragment import (
     LanceCommitter,
     LanceFragmentWriter,
-    add_columns as add_columns_distributed,
 )
 import lance_ray as lr
 
@@ -171,88 +170,3 @@ class TestLanceFragmentWriterCommitter:
 
 
 
-class TestDistributedAddColumns:
-    """Test distributed add_columns using fragment API."""
-
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_distributed_add_columns(self, tmp_path: Path):
-        """Test distributed column addition through fragment API."""
-
-        def generate_label(batch: pa.RecordBatch) -> pa.RecordBatch:
-            heights = batch.column("height").to_pylist()
-            tags = ["big" if height > 5 else "small" for height in heights]
-            df = pd.DataFrame({"size_labels": tags})
-
-            return pa.RecordBatch.from_pandas(
-                df, schema=pa.schema([pa.field("size_labels", pa.string())])
-            )
-
-        schema = pa.schema(
-            [
-                pa.field("id", pa.int64()),
-                pa.field("height", pa.int64()),
-                pa.field("weight", pa.int64()),
-            ]
-        )
-
-        # Write initial data
-        dataset = (
-            ray.data.range(11)
-            .repartition(1)
-            .map(lambda x: {"id": x["id"], "height": (x["id"] + 5), "weight": x["id"]})
-        )
-        lr.write_lance(dataset, str(tmp_path), schema=schema)
-
-        # Add columns using distributed fragment API
-        lance_ds = lance.dataset(tmp_path)
-        add_columns_distributed(lance_ds, generate_label, source_columns=["height"])
-
-        # Verify the new column was added
-        ds = lance.dataset(tmp_path)
-        tbl = ds.to_table()
-        assert "size_labels" in tbl.column_names
-        size_labels = tbl.column("size_labels").to_pylist()
-        heights = tbl.column("height").to_pylist()
-        # Check that labels match the height criteria
-        for height, label in zip(heights, size_labels):
-            if height > 5:
-                assert label == "big", f"Height {height} should be 'big' but got '{label}'"
-            else:
-                assert label == "small", f"Height {height} should be 'small' but got '{label}'"
-
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_distributed_add_columns_multiple_fragments(self, tmp_path: Path):
-        """Test distributed add_columns with multiple fragments."""
-
-        def add_squared(batch: pa.RecordBatch) -> pa.RecordBatch:
-            values = batch.column("value").to_pylist()
-            squared = [v * v for v in values]
-            return pa.RecordBatch.from_pandas(
-                pd.DataFrame({"squared": squared}),
-                schema=pa.schema([pa.field("squared", pa.int64())]),
-            )
-
-        schema = pa.schema([pa.field("id", pa.int64()), pa.field("value", pa.int64())])
-
-        # Write data with multiple fragments
-        dataset = (
-            ray.data.range(20)
-            .map(lambda x: {"id": x["id"], "value": x["id"] + 1})
-        )
-        lr.write_lance(dataset, str(tmp_path), schema=schema, max_rows_per_file=5)
-
-        # Verify we have multiple fragments
-        lance_ds = lance.dataset(tmp_path)
-        assert len(lance_ds.get_fragments()) == 4  # 20 rows / 5 rows per file
-
-        # Add columns using distributed API
-        add_columns_distributed(lance_ds, add_squared, source_columns=["value"])
-
-        # Verify the new column was added correctly
-        ds = lance.dataset(tmp_path)
-        tbl = ds.to_table()
-        assert "squared" in tbl.column_names
-        values = tbl.column("value").to_pylist()
-        squared = tbl.column("squared").to_pylist()
-        for v, s in zip(values, squared):
-            assert s == v * v
