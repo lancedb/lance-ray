@@ -14,29 +14,12 @@ from ray.data import DataContext
 from ray.data._internal.util import _check_import, call_with_retry
 from ray.data.datasource.datasink import Datasink
 
+from .utils import _pd_to_arrow
+
 if TYPE_CHECKING:
     import pandas as pd
     from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
-
-
-def _pd_to_arrow(
-    df: Union[pa.Table, "pd.DataFrame", dict], schema: Optional[pa.Schema]
-) -> pa.Table:
-    """Convert a pandas DataFrame to pyarrow Table."""
-    from lance.dependencies import _PANDAS_AVAILABLE
-    from lance.dependencies import pandas as pd
-
-    if isinstance(df, dict):
-        return pa.Table.from_pydict(df, schema=schema)
-    elif _PANDAS_AVAILABLE and isinstance(df, pd.DataFrame):
-        tbl = pa.Table.from_pandas(df, schema=schema)
-        new_schema = tbl.schema.remove_metadata()
-        new_table = tbl.replace_schema_metadata(new_schema.metadata)
-        return new_table
-    elif isinstance(df, pa.Table) and df.num_rows > 0 and schema is not None:
-        return df.cast(schema)
-    return df
 
 
 def _write_fragment(
@@ -91,7 +74,7 @@ def _write_fragment(
             data_storage_version=data_storage_version,
             storage_options=storage_options,
         ),
-        **retry_params,
+        **(retry_params or {}),
     )
     return [(fragment, schema) for fragment in fragments]
 

@@ -4,7 +4,6 @@
 import pickle
 import warnings
 from dataclasses import dataclass, field
-from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,7 +24,6 @@ import ray.data
 from ray.data import from_items
 
 import lance
-from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, FragmentMetadata, write_fragments
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -72,81 +70,10 @@ RecordBatchTransformer = Callable[[pa.RecordBatch], pa.RecordBatch]
 
 
 # ==============================================================================
-# Helper Functions
+# Imports from other modules
 # ==============================================================================
-def _pd_to_arrow(
-    df: Union[pa.Table, "pd.DataFrame", Dict], schema: Optional[pa.Schema]
-) -> pa.Table:
-    """Convert a pandas DataFrame to pyarrow Table."""
-    try:
-        import pandas as pd
-
-        _PANDAS_AVAILABLE = True
-    except ImportError:
-        _PANDAS_AVAILABLE = False
-
-    if isinstance(df, dict):
-        return pa.Table.from_pydict(df, schema=schema)
-    elif _PANDAS_AVAILABLE and isinstance(df, pd.DataFrame):
-        tbl = pa.Table.from_pandas(df, schema=schema)
-        tbl.schema = tbl.schema.remove_metadata()
-        return tbl
-    elif isinstance(df, pa.Table):
-        if schema is not None:
-            return df.cast(schema)
-    return df
-
-
-def _write_fragment(
-    stream: Iterable[Union[pa.Table, "pd.DataFrame"]],
-    uri: str,
-    *,
-    schema: Optional[pa.Schema] = None,
-    max_rows_per_file: int = 1024 * 1024,
-    max_bytes_per_file: Optional[int] = None,
-    max_rows_per_group: int = 1024,  # Only useful for v1 writer.
-    data_storage_version: Optional[str] = None,
-    storage_options: Optional[Dict[str, Any]] = None,
-) -> List[Tuple[FragmentMetadata, pa.Schema]]:
-    try:
-        import pandas as pd
-
-        _PANDAS_AVAILABLE = True
-    except ImportError:
-        _PANDAS_AVAILABLE = False
-
-    if schema is None:
-        first = next(stream)
-        if _PANDAS_AVAILABLE and isinstance(first, pd.DataFrame):
-            schema = pa.Schema.from_pandas(first).remove_metadata()
-        elif isinstance(first, Dict):
-            tbl = pa.Table.from_pydict(first)
-            schema = tbl.schema.remove_metadata()
-        else:
-            schema = first.schema
-        stream = chain([first], stream)
-
-    def record_batch_converter():
-        for block in stream:
-            tbl = _pd_to_arrow(block, schema)
-            yield from tbl.to_batches()
-
-    max_bytes_per_file = (
-        DEFAULT_MAX_BYTES_PER_FILE if max_bytes_per_file is None else max_bytes_per_file
-    )
-
-    reader = pa.RecordBatchReader.from_batches(schema, record_batch_converter())
-    fragments = write_fragments(
-        reader,
-        uri,
-        schema=schema,
-        max_rows_per_file=max_rows_per_file,
-        max_rows_per_group=max_rows_per_group,
-        max_bytes_per_file=max_bytes_per_file,
-        data_storage_version=data_storage_version,
-        storage_options=storage_options,
-    )
-    return [(fragment, schema) for fragment in fragments]
+from .datasink import _write_fragment
+from .utils import _pd_to_arrow
 
 
 # ==============================================================================
@@ -454,6 +381,14 @@ class LanceFragmentWriter:
         if not isinstance(transformed, Generator):
             transformed = (t for t in [transformed])
 
+        # Use default retry params similar to LanceDatasink
+        retry_params = {
+            "description": "write lance fragments",
+            "match": ["LanceError(IO)"],
+            "max_attempts": 10,
+            "max_backoff_s": 32,
+        }
+
         fragments = _write_fragment(
             transformed,
             self.uri,
@@ -463,6 +398,7 @@ class LanceFragmentWriter:
             max_bytes_per_file=self.max_bytes_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
+            retry_params=retry_params,
         )
         return pa.Table.from_pydict(
             {
