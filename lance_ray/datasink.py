@@ -14,7 +14,7 @@ from ray.data import DataContext
 from ray.data._internal.util import _check_import, call_with_retry
 from ray.data.datasource.datasink import Datasink
 
-from .utils import _pd_to_arrow
+from .pandas import pd_to_arrow
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -55,7 +55,7 @@ def _write_fragment(
 
     def record_batch_converter():
         for block in stream:
-            tbl = _pd_to_arrow(block, schema)
+            tbl = pd_to_arrow(block, schema)
             yield from tbl.to_batches()
 
     max_bytes_per_file = (

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _pd_to_arrow(
+def pd_to_arrow(
     df: Union[pa.Table, "pd.DataFrame", Dict], schema: Optional[pa.Schema]
 ) -> pa.Table:
     """Convert a pandas DataFrame to pyarrow Table."""

@@ -73,7 +73,7 @@ RecordBatchTransformer = Callable[[pa.RecordBatch], pa.RecordBatch]
 # Imports from other modules
 # ==============================================================================
 from .datasink import _write_fragment
-from .utils import _pd_to_arrow
+from .pandas import pd_to_arrow
 
 
 # ==============================================================================
