@@ -38,7 +38,6 @@ __all__ = [
     "DispatchFragmentTasks",
     "FragmentTask",
     "AddColumnTask",
-    "_register_hooks",
 ]
 
 # ==============================================================================
@@ -529,23 +528,3 @@ class LanceCommitter(_BaseLanceDatasink):
         return v
 
 
-def _register_hooks():
-    """Register lance hook to Ray for better integration.
-
-    You can use `ray.data.Dataset.write_lance` to write Ray dataset to lance.
-    Example:
-
-    ```python
-    import ray
-    import lance
-    from lance_ray import _register_hooks
-
-    _register_hooks()
-
-    ray.data.range(10)
-        .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
-        .write_lance("~/data.lance")
-    ```
-    """
-    from .io import write_lance
-    ray.data.Dataset.write_lance = write_lance

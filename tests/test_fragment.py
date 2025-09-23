@@ -11,9 +11,9 @@ import ray
 from lance_ray.fragment import (
     LanceCommitter,
     LanceFragmentWriter,
-    _register_hooks,
     add_columns as add_columns_distributed,
 )
+import lance_ray as lr
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -168,31 +168,6 @@ class TestLanceFragmentWriterCommitter:
                 assert str_val == f"str-{id_val}", f"ID {id_val} should have 'str-{id_val}' but got {str_val}"
 
 
-class TestRayHooks:
-    """Test Ray hook registration for write_lance."""
-
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_register_hooks_write_lance(self, tmp_path: Path):
-        """Test _register_hooks enables ray.data.Dataset.write_lance."""
-        # Register hooks
-        _register_hooks()
-
-        schema = pa.schema([pa.field("id", pa.int64()), pa.field("str", pa.string())])
-
-        # Now we should be able to use write_lance directly on Ray dataset
-        (
-            ray.data.range(10)
-            .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
-            .write_lance(str(tmp_path), schema=schema)
-        )
-
-        # Verify the dataset
-        ds = lance.dataset(tmp_path)
-        assert ds.count_rows() == 10
-        assert ds.schema == schema
-        tbl = ds.to_table()
-        assert sorted(tbl["id"].to_pylist()) == list(range(10))
-        assert set(tbl["str"].to_pylist()) == set([f"str-{i}" for i in range(10)])
 
 
 
@@ -220,14 +195,13 @@ class TestDistributedAddColumns:
             ]
         )
 
-        # Register hooks and write initial data
-        _register_hooks()
-        (
+        # Write initial data
+        dataset = (
             ray.data.range(11)
             .repartition(1)
             .map(lambda x: {"id": x["id"], "height": (x["id"] + 5), "weight": x["id"]})
-            .write_lance(str(tmp_path), schema=schema)
         )
+        lr.write_lance(dataset, str(tmp_path), schema=schema)
 
         # Add columns using distributed fragment API
         lance_ds = lance.dataset(tmp_path)
@@ -261,12 +235,11 @@ class TestDistributedAddColumns:
         schema = pa.schema([pa.field("id", pa.int64()), pa.field("value", pa.int64())])
 
         # Write data with multiple fragments
-        _register_hooks()
-        (
+        dataset = (
             ray.data.range(20)
             .map(lambda x: {"id": x["id"], "value": x["id"] + 1})
-            .write_lance(str(tmp_path), schema=schema, max_rows_per_file=5)
         )
+        lr.write_lance(dataset, str(tmp_path), schema=schema, max_rows_per_file=5)
 
         # Verify we have multiple fragments
         lance_ds = lance.dataset(tmp_path)

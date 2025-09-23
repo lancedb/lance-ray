@@ -22,7 +22,6 @@ from .fragment import (
     DispatchFragmentTasks,
     FragmentTask,
     AddColumnTask,
-    _register_hooks,
 )
 
 __all__ = [
@@ -37,5 +36,4 @@ __all__ = [
     "DispatchFragmentTasks",
     "FragmentTask",
     "AddColumnTask",
-    "_register_hooks",
 ]
