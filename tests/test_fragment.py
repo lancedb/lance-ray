@@ -6,8 +6,8 @@ import lance
 import pyarrow as pa
 import pytest
 import ray
-from lance_ray.fragment import LanceFragmentWriter
 from lance_ray.datasink import LanceFragmentCommitter
+from lance_ray.fragment import LanceFragmentWriter
 
 
 @pytest.fixture(scope="module", autouse=True)
