@@ -112,11 +112,12 @@ class LanceFragmentWriter:
     uri : str
         The base URI of the dataset.
 
-        For namespace-based tables, resolve the URI first using:
+        For namespace-based tables, resolve the URI first before distributing the writes:
         - namespace.describe_table(DescribeTableRequest(id=table_id)) to get existing table
         - namespace.create_empty_table(CreateEmptyTableRequest(id=table_id)) to create new table
 
-        Then use the returned location as the uri.
+        Then use the returned location as the uri. This ensures all distributed workers
+        write to the same resolved location.
     transform : Callable[[pa.Table], Union[pa.Table, Generator]], optional
         A callable to transform the input batch. Default is None.
     schema : pyarrow.Schema, optional
