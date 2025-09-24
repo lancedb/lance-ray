@@ -16,11 +16,7 @@ from .io import add_columns, read_lance, write_lance
 # Fragment API imports
 from .fragment import (
     LanceFragmentWriter,
-    LanceCommitter,
-    execute_fragment_operation,
-    DispatchFragmentTasks,
-    FragmentTask,
-    AddColumnTask,
+    LanceFragmentCommitter,
 )
 
 __all__ = [
@@ -29,9 +25,5 @@ __all__ = [
     "add_columns",
     "create_scalar_index",
     "LanceFragmentWriter",
-    "LanceCommitter",
-    "execute_fragment_operation",
-    "DispatchFragmentTasks",
-    "FragmentTask",
-    "AddColumnTask",
+    "LanceFragmentCommitter",
 ]
