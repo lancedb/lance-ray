@@ -6,11 +6,12 @@ from pathlib import Path
 
 import lance
 import lance_ray as lr
-import pandas as pd
 import pyarrow as pa
 import pytest
 import ray
 from ray.data import Dataset
+
+import pandas as pd
 
 
 @pytest.fixture(scope="session", autouse=True)

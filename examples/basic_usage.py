@@ -10,9 +10,10 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import pandas as pd
 import ray
 from lance_ray import read_lance, write_lance
+
+import pandas as pd
 
 
 def main():
