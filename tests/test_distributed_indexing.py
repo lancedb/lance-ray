@@ -5,10 +5,11 @@ from pathlib import Path
 
 import lance
 import lance_ray as lr
-import pandas as pd
 import pytest
 import ray
 from packaging import version
+
+import pandas as pd
 
 
 def check_lance_version_compatibility():
@@ -19,6 +20,7 @@ def check_lance_version_compatibility():
         return lance_version >= min_required_version
     except (AttributeError, Exception):
         return False
+
 
 # Skip all distributed indexing tests if lance version is incompatible
 pytestmark = pytest.mark.skipif(
@@ -515,7 +517,6 @@ class TestDistributedIndexing:
         indices = updated_dataset.list_indices()
         assert len(indices) > 0, "No indices found after building"
 
-
     def test_distributed_fts_index_new_api(self, temp_dir):
         """
         Test distributed FTS index building using the new API from PR #4578.
@@ -633,6 +634,7 @@ class TestDistributedIndexing:
                 num_workers=2,
             )
 
+
 def check_btree_version_compatibility():
     """Check if lance version supports distributed B-tree indexing (>= 0.37.0)."""
     try:
@@ -641,6 +643,7 @@ def check_btree_version_compatibility():
         return lance_version >= btree_min_version
     except (AttributeError, Exception):
         return False
+
 
 @pytest.mark.skipif(
     not check_btree_version_compatibility(),
@@ -653,7 +656,9 @@ class TestDistributedBTreeIndexing:
 
     def test_distributed_btree_index_basic(self, temp_dir):
         """Build a distributed BTREE index and verify search works and type is BTree."""
-        ds = generate_multi_fragment_dataset(temp_dir, num_fragments=3, rows_per_fragment=500)
+        ds = generate_multi_fragment_dataset(
+            temp_dir, num_fragments=3, rows_per_fragment=500
+        )
 
         updated_dataset = lr.create_scalar_index(
             dataset=ds,
@@ -674,11 +679,15 @@ class TestDistributedBTreeIndexing:
                 our_index = idx
                 break
         assert our_index is not None, "BTREE index not found by name"
-        assert our_index["type"] == "BTree", f"Expected BTree index, got {our_index['type']}"
+        assert our_index["type"] == "BTree", (
+            f"Expected BTree index, got {our_index['type']}"
+        )
 
         # Spot-check equality and range queries
         eq_id = 100
-        eq_tbl = updated_dataset.scanner(filter=f"id = {eq_id}", columns=["id", "text"]).to_table()
+        eq_tbl = updated_dataset.scanner(
+            filter=f"id = {eq_id}", columns=["id", "text"]
+        ).to_table()
         assert eq_tbl.num_rows == 1
 
         rg_tbl = updated_dataset.scanner(
@@ -690,8 +699,12 @@ class TestDistributedBTreeIndexing:
     @pytest.fixture
     def btree_comp_datasets(self, tmp_path):
         """Build two datasets: one with a distributed BTREE index and one without index as baseline."""
-        with_index = generate_multi_fragment_dataset(tmp_path / "with_index", num_fragments=3, rows_per_fragment=500)
-        without_index = generate_multi_fragment_dataset(tmp_path / "without_index", num_fragments=3, rows_per_fragment=500)
+        with_index = generate_multi_fragment_dataset(
+            tmp_path / "with_index", num_fragments=3, rows_per_fragment=500
+        )
+        without_index = generate_multi_fragment_dataset(
+            tmp_path / "without_index", num_fragments=3, rows_per_fragment=500
+        )
 
         # Build BTREE index on the first dataset using unified API
         with_index = lr.create_scalar_index(
@@ -732,13 +745,19 @@ class TestDistributedBTreeIndexing:
             ("Greater than or equal", "id >= 995"),
         ],
     )
-    def test_btree_query_results_match_baseline(self, btree_comp_datasets, test_name, filter_expr):
+    def test_btree_query_results_match_baseline(
+        self, btree_comp_datasets, test_name, filter_expr
+    ):
         """Compare query results between an indexed dataset and an identical baseline dataset without index."""
         with_index = btree_comp_datasets["with_index"]
         without_index = btree_comp_datasets["without_index"]
 
-        res_idx = with_index.scanner(filter=filter_expr, columns=["id", "text"]).to_table()
-        res_base = without_index.scanner(filter=filter_expr, columns=["id", "text"]).to_table()
+        res_idx = with_index.scanner(
+            filter=filter_expr, columns=["id", "text"]
+        ).to_table()
+        res_base = without_index.scanner(
+            filter=filter_expr, columns=["id", "text"]
+        ).to_table()
 
         assert res_idx.num_rows == res_base.num_rows, (
             f"Test '{test_name}' failed: indexed returned {res_idx.num_rows} rows, "

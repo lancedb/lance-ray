@@ -16,11 +16,9 @@ from ray.data.datasource.datasink import Datasink
 from .fragment import write_fragment
 
 if TYPE_CHECKING:
-    import pandas as pd
-    from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
 
-
+    import pandas as pd
 
 
 class _BaseLanceDatasink(Datasink):
@@ -288,7 +286,7 @@ class LanceFragmentCommitter(_BaseLanceDatasink):
                 continue
 
             for fragment, schema in zip(
-                block["fragment"].to_pylist(), block["schema"].to_pylist()
+                block["fragment"].to_pylist(), block["schema"].to_pylist(), strict=False
             ):
                 v.append((fragment, schema))
         return v

@@ -13,6 +13,7 @@ from ray.util.multiprocessing import Pool
 
 logger = logging.getLogger(__name__)
 
+
 def _distribute_fragments_balanced(
     fragments: list[Any], num_workers: int, logger: logging.Logger
 ) -> list[list[int]]:
@@ -41,20 +42,24 @@ def _distribute_fragments_balanced(
             # Try to get fragment size information
             # fragment.count_rows() gives us the number of rows in the fragment
             row_count = fragment.count_rows()
-            fragment_info.append({
-                "id": fragment.fragment_id,
-                "size": row_count,
-            })
+            fragment_info.append(
+                {
+                    "id": fragment.fragment_id,
+                    "size": row_count,
+                }
+            )
         except Exception as e:
             # If we can't get size info, use fragment_id as a fallback
             logger.warning(
                 f"Could not get size for fragment {fragment.fragment_id}: {e}. "
                 "Using fragment_id as size estimate."
             )
-            fragment_info.append({
-                "id": fragment.fragment_id,
-                "size": fragment.fragment_id,  # Fallback to fragment_id
-            })
+            fragment_info.append(
+                {
+                    "id": fragment.fragment_id,
+                    "size": fragment.fragment_id,  # Fallback to fragment_id
+                }
+            )
 
     # Sort fragments by size in descending order (largest first)
     # This helps with better load balancing using the greedy algorithm
@@ -80,7 +85,9 @@ def _distribute_fragments_balanced(
     logger.info(f"  Total size: {total_size}")
     logger.info(f"  Workers: {num_workers}")
 
-    for i, (batch, workload) in enumerate(zip(worker_batches, worker_workloads, strict=False)):
+    for i, (batch, workload) in enumerate(
+        zip(worker_batches, worker_workloads, strict=False)
+    ):
         percentage = (workload / total_size * 100) if total_size > 0 else 0
         logger.info(
             f"  Worker {i}: {len(batch)} fragments, "
@@ -91,7 +98,6 @@ def _distribute_fragments_balanced(
     non_empty_batches = [batch for batch in worker_batches if batch]
 
     return non_empty_batches
-
 
 
 def _handle_fragment_index(
@@ -110,6 +116,7 @@ def _handle_fragment_index(
     This function returns a callable that can be used with Pool.map_async
     to build indices for specific fragments.
     """
+
     def func(fragment_ids: list[int]) -> dict[str, Any]:
         """
         Handle fragment index building using the distributed API.
@@ -143,7 +150,9 @@ def _handle_fragment_index(
                 raise ValueError(f"Fragment IDs {invalid_fragments} do not exist")
 
             # Use the distributed index building API - Phase 1: Fragment index creation
-            logger.info(f"Building distributed index for fragments {fragment_ids} using create_scalar_index")
+            logger.info(
+                f"Building distributed index for fragments {fragment_ids} using create_scalar_index"
+            )
 
             # Call create_scalar_index directly - no return value expected
             # After execution, fragment-level indices are automatically built
@@ -155,13 +164,15 @@ def _handle_fragment_index(
                 train=train,
                 fragment_uuid=fragment_uuid,
                 fragment_ids=fragment_ids,
-                **kwargs
+                **kwargs,
             )
 
             # Get field ID for the indexed column
             field_id = dataset.schema.get_field_index(column)
 
-            logger.info(f"Fragment index created successfully for fragments {fragment_ids}")
+            logger.info(
+                f"Fragment index created successfully for fragments {fragment_ids}"
+            )
 
             return {
                 "status": "success",
@@ -171,7 +182,9 @@ def _handle_fragment_index(
             }
 
         except Exception as e:
-            logger.error(f"Fragment index task failed for fragments {fragment_ids}: {e}")
+            logger.error(
+                f"Fragment index task failed for fragments {fragment_ids}: {e}"
+            )
             return {
                 "status": "error",
                 "fragment_ids": fragment_ids,
@@ -180,16 +193,27 @@ def _handle_fragment_index(
 
     return func
 
+
 def merge_index_metadata_compat(dataset, index_id, index_type, **kwargs):
     try:
-        return dataset.merge_index_metadata(index_id, index_type, batch_readhead=kwargs.get("batch_readhead"))
+        return dataset.merge_index_metadata(
+            index_id, index_type, batch_readhead=kwargs.get("batch_readhead")
+        )
     except TypeError:
         return dataset.merge_index_metadata(index_id)
+
 
 def create_scalar_index(
     dataset: Union[str, "lance.LanceDataset"],
     column: str,
-    index_type: Literal["BTREE"] | Literal["BITMAP"] | Literal["LABEL_LIST"] | Literal["INVERTED"] | Literal["FTS"] | Literal["NGRAM"] | Literal["ZONEMAP"] | IndexConfig,
+    index_type: Literal["BTREE"]
+    | Literal["BITMAP"]
+    | Literal["LABEL_LIST"]
+    | Literal["INVERTED"]
+    | Literal["FTS"]
+    | Literal["NGRAM"]
+    | Literal["ZONEMAP"]
+    | IndexConfig,
     name: Optional[str] = None,
     *,
     replace: bool = True,
@@ -263,9 +287,19 @@ def create_scalar_index(
 
     # Handle index_type validation
     if isinstance(index_type, str):
-        valid_index_types = ["BTREE", "BITMAP", "LABEL_LIST", "INVERTED", "FTS", "NGRAM", "ZONEMAP"]
+        valid_index_types = [
+            "BTREE",
+            "BITMAP",
+            "LABEL_LIST",
+            "INVERTED",
+            "FTS",
+            "NGRAM",
+            "ZONEMAP",
+        ]
         if index_type not in valid_index_types:
-            raise ValueError(f"Index type must be one of {valid_index_types}, not '{index_type}'")
+            raise ValueError(
+                f"Index type must be one of {valid_index_types}, not '{index_type}'"
+            )
 
         # Validate distributed indexing support
         supported_distributed_types = {"INVERTED", "FTS", "BTREE"}
@@ -275,7 +309,9 @@ def create_scalar_index(
                 f"not '{index_type}'"
             )
     elif not isinstance(index_type, IndexConfig):
-        raise ValueError(f"index_type must be a string literal or IndexConfig object, got {type(index_type)}")
+        raise ValueError(
+            f"index_type must be a string literal or IndexConfig object, got {type(index_type)}"
+        )
 
     # Note: Ray initialization is now handled by the Pool, following the pattern from io.py
     # This removes the need for explicit ray.init() calls
@@ -292,7 +328,9 @@ def create_scalar_index(
         field = dataset.schema.field(column)
     except KeyError as e:
         available_columns = [field.name for field in dataset.schema]
-        raise ValueError(f"Column '{column}' not found. Available: {available_columns}") from e
+        raise ValueError(
+            f"Column '{column}' not found. Available: {available_columns}"
+        ) from e
 
     if storage_options is None:
         storage_options = dataset._storage_options
@@ -308,14 +346,20 @@ def create_scalar_index(
             case "INVERTED" | "FTS":
                 # Text-based indexes require string types
                 if not pa.types.is_string(value_type):
-                    raise TypeError(f"Column {column} must be string type for {index_type} index, got {value_type}")
+                    raise TypeError(
+                        f"Column {column} must be string type for {index_type} index, got {value_type}"
+                    )
             case "BTREE":
                 # B-Tree indexes support both numeric and string types
-                is_supported = (pa.types.is_integer(value_type) or
-                               pa.types.is_floating(value_type) or
-                               pa.types.is_string(value_type))
+                is_supported = (
+                    pa.types.is_integer(value_type)
+                    or pa.types.is_floating(value_type)
+                    or pa.types.is_string(value_type)
+                )
                 if not is_supported:
-                    raise TypeError(f"Column {column} must be numeric or string type for BTREE index, got {value_type}")
+                    raise TypeError(
+                        f"Column {column} must be numeric or string type for BTREE index, got {value_type}"
+                    )
             case _:
                 # For other index types, skip strict validation to maintain compatibility
                 pass
@@ -329,7 +373,9 @@ def create_scalar_index(
             existing_indices = dataset.list_indices()
             existing_names = {idx["name"] for idx in existing_indices}
             if name in existing_names:
-                raise ValueError(f"Index with name '{name}' already exists. Set replace=True to replace it.")
+                raise ValueError(
+                    f"Index with name '{name}' already exists. Set replace=True to replace it."
+                )
         except Exception:
             # If we can't check existing indices, continue
             pass
@@ -344,7 +390,9 @@ def create_scalar_index(
         available_fragment_ids = {f.fragment_id for f in fragments}
         invalid_fragments = set(fragment_ids) - available_fragment_ids
         if invalid_fragments:
-            raise ValueError(f"Fragment IDs {invalid_fragments} do not exist in dataset")
+            raise ValueError(
+                f"Fragment IDs {invalid_fragments} do not exist in dataset"
+            )
         # Filter fragments to only include requested ones
         fragments = [f for f in fragments if f.fragment_id in fragment_ids]
         fragment_ids_to_use = fragment_ids
@@ -357,9 +405,7 @@ def create_scalar_index(
         logger.info(f"Adjusted num_workers to {num_workers} to match fragment count")
 
     # Distribute fragments to workers using balanced distribution algorithm
-    fragment_batches = _distribute_fragments_balanced(
-        fragments, num_workers, logger
-    )
+    fragment_batches = _distribute_fragments_balanced(fragments, num_workers, logger)
 
     # Phase 1: Fragment index creation using Pool pattern (similar to io.py)
     # Use Pool to distribute work instead of direct Ray task submission
@@ -440,6 +486,10 @@ def create_scalar_index(
         storage_options=storage_options,
     )
 
-    logger.info(f"Successfully created distributed index '{name}' with three-phase workflow")
-    logger.info(f"Index ID: {index_id}, Fragments: {len(fragment_ids_to_use)}, Workers: {len(fragment_batches)}")
+    logger.info(
+        f"Successfully created distributed index '{name}' with three-phase workflow"
+    )
+    logger.info(
+        f"Index ID: {index_id}, Fragments: {len(fragment_ids_to_use)}, Workers: {len(fragment_batches)}"
+    )
     return updated_dataset

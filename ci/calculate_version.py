@@ -17,22 +17,24 @@ def calculate_next_version(current_version, release_type, channel):
     v = version.parse(current_version)
 
     # Extract major, minor, patch
-    if hasattr(v, 'release'):
-        major, minor, patch = v.release[:3] if len(v.release) >= 3 else (*v.release, 0, 0)[:3]
+    if hasattr(v, "release"):
+        major, minor, patch = (
+            v.release[:3] if len(v.release) >= 3 else (*v.release, 0, 0)[:3]
+        )
     else:
         # Fallback for simple versions
-        parts = current_version.split('.')
+        parts = current_version.split(".")
         major = int(parts[0]) if len(parts) > 0 else 0
         minor = int(parts[1]) if len(parts) > 1 else 0
         patch = int(parts[2]) if len(parts) > 2 else 0
 
     # Calculate new version for stable releases
-    if channel == 'stable':
-        if release_type == 'major':
+    if channel == "stable":
+        if release_type == "major":
             new_version = f"{major + 1}.0.0"
-        elif release_type == 'minor':
+        elif release_type == "minor":
             new_version = f"{major}.{minor + 1}.0"
-        elif release_type == 'patch':
+        elif release_type == "patch":
             new_version = f"{major}.{minor}.{patch + 1}"
         else:
             raise ValueError(f"Unknown release type: {release_type}")
@@ -42,11 +44,22 @@ def calculate_next_version(current_version, release_type, channel):
 
     return new_version
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Calculate next version')
-    parser.add_argument('--current', required=True, help='Current version')
-    parser.add_argument('--type', required=True, choices=['major', 'minor', 'patch'], help='Release type')
-    parser.add_argument('--channel', required=True, choices=['stable', 'preview'], help='Release channel')
+    parser = argparse.ArgumentParser(description="Calculate next version")
+    parser.add_argument("--current", required=True, help="Current version")
+    parser.add_argument(
+        "--type",
+        required=True,
+        choices=["major", "minor", "patch"],
+        help="Release type",
+    )
+    parser.add_argument(
+        "--channel",
+        required=True,
+        choices=["stable", "preview"],
+        help="Release channel",
+    )
 
     args = parser.parse_args()
 
@@ -57,14 +70,15 @@ def main():
         print(f"version={new_version}")
 
         # Also write to GITHUB_OUTPUT if available
-        github_output = os.environ.get('GITHUB_OUTPUT')
+        github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
-            with open(github_output, 'a') as f:
+            with open(github_output, "a") as f:
                 f.write(f"version={new_version}\n")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

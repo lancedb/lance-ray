@@ -3,16 +3,13 @@
 from pathlib import Path
 
 import lance
-import pandas as pd
 import pyarrow as pa
 import pytest
 import ray
-
 from lance_ray.fragment import (
     LanceFragmentCommitter,
     LanceFragmentWriter,
 )
-import lance_ray as lr
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -159,9 +156,13 @@ class TestLanceFragmentWriterCommitter:
         str_values = tbl["str"].to_pylist()
         id_values = tbl["id"].to_pylist()
         # Even IDs should have None values
-        for id_val, str_val in zip(id_values, str_values):
+        for id_val, str_val in zip(id_values, str_values, strict=False):
             if id_val % 2 == 0:
                 # None values might be represented as None or as 'nan' string
-                assert str_val is None or str(str_val) == 'nan', f"ID {id_val} should have None/nan but got {str_val}"
+                assert str_val is None or str(str_val) == "nan", (
+                    f"ID {id_val} should have None/nan but got {str_val}"
+                )
             else:
-                assert str_val == f"str-{id_val}", f"ID {id_val} should have 'str-{id_val}' but got {str_val}"
+                assert str_val == f"str-{id_val}", (
+                    f"ID {id_val} should have 'str-{id_val}' but got {str_val}"
+                )

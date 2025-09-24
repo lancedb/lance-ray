@@ -10,7 +10,9 @@ import sys
 from pathlib import Path
 
 
-def run_command(cmd: list[str], capture_output: bool = True) -> subprocess.CompletedProcess:
+def run_command(
+    cmd: list[str], capture_output: bool = True
+) -> subprocess.CompletedProcess:
     """Run a command and return the result."""
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=capture_output, text=True)
@@ -36,9 +38,15 @@ def get_current_version() -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Bump version in Python project using bump-my-version')
-    parser.add_argument('--version', required=True, help='New version to set')
-    parser.add_argument('--dry-run', action='store_true', help='Show what would be changed without making changes')
+    parser = argparse.ArgumentParser(
+        description="Bump version in Python project using bump-my-version"
+    )
+    parser.add_argument("--version", required=True, help="New version to set")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be changed without making changes",
+    )
 
     args = parser.parse_args()
 
@@ -52,17 +60,35 @@ def main():
     if args.dry_run:
         print("\nDry run mode - no changes will be made")
         # Run bump-my-version in dry-run mode
-        cmd = ["bump-my-version", "bump", "--current-version", current_version,
-               "--new-version", new_version, "--dry-run", "--verbose", "--allow-dirty"]
+        cmd = [
+            "bump-my-version",
+            "bump",
+            "--current-version",
+            current_version,
+            "--new-version",
+            new_version,
+            "--dry-run",
+            "--verbose",
+            "--allow-dirty",
+        ]
         run_command(cmd, capture_output=False)
     else:
         # Use bump-my-version to update all files
         print("\nUpdating version in all files...")
-        cmd = ["bump-my-version", "bump", "--current-version", current_version,
-               "--new-version", new_version, "--no-commit", "--no-tag", "--allow-dirty"]
+        cmd = [
+            "bump-my-version",
+            "bump",
+            "--current-version",
+            current_version,
+            "--new-version",
+            new_version,
+            "--no-commit",
+            "--no-tag",
+            "--allow-dirty",
+        ]
         run_command(cmd)
         print(f"\nSuccessfully updated version from {current_version} to {new_version}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

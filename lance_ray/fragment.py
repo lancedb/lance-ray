@@ -3,28 +3,22 @@
 
 import pickle
 import warnings
+from collections.abc import Callable, Generator, Iterable
 from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterable,
-    List,
     Optional,
-    Tuple,
     Union,
 )
 
 import pyarrow as pa
 from ray.data._internal.util import call_with_retry
 
-import lance
-
 if TYPE_CHECKING:
-    import pandas as pd
     from lance.fragment import FragmentMetadata
+
+    import pandas as pd
 
 __all__ = [
     "LanceFragmentWriter",
@@ -43,9 +37,9 @@ def write_fragment(
     max_bytes_per_file: Optional[int] = None,
     max_rows_per_group: int = 1024,  # Only useful for v1 writer.
     data_storage_version: Optional[str] = None,
-    storage_options: Optional[Dict[str, Any]] = None,
-    retry_params: Optional[Dict[str, Any]] = None,
-) -> List[Tuple["FragmentMetadata", pa.Schema]]:
+    storage_options: Optional[dict[str, Any]] = None,
+    retry_params: Optional[dict[str, Any]] = None,
+) -> list[tuple["FragmentMetadata", pa.Schema]]:
     from lance.dependencies import _PANDAS_AVAILABLE
     from lance.dependencies import pandas as pd
     from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
@@ -149,27 +143,25 @@ class LanceFragmentWriter:
         self,
         uri: str,
         *,
-        transform: Optional[Callable[[pa.Table], Union[pa.Table, Generator]]] = None,
+        transform: Optional[Callable[[pa.Table], pa.Table | Generator]] = None,
         schema: Optional[pa.Schema] = None,
         max_rows_per_file: int = 1024 * 1024,
         max_bytes_per_file: Optional[int] = None,
         max_rows_per_group: Optional[int] = None,  # Only useful for v1 writer.
         data_storage_version: Optional[str] = None,
         use_legacy_format: Optional[bool] = False,
-        storage_options: Optional[Dict[str, Any]] = None,
-        retry_params: Optional[Dict[str, Any]] = None,
+        storage_options: Optional[dict[str, Any]] = None,
+        retry_params: Optional[dict[str, Any]] = None,
     ):
         if use_legacy_format is not None:
             warnings.warn(
                 "The `use_legacy_format` parameter is deprecated. Use the "
                 "`data_storage_version` parameter instead.",
                 DeprecationWarning,
+                stacklevel=2,
             )
 
-            if use_legacy_format:
-                data_storage_version = "legacy"
-            else:
-                data_storage_version = "stable"
+            data_storage_version = "legacy" if use_legacy_format else "stable"
 
         self.uri = uri
         self.schema = schema
@@ -182,12 +174,12 @@ class LanceFragmentWriter:
         self.storage_options = storage_options
         self.retry_params = retry_params
 
-    def __call__(self, batch: Union[pa.Table, "pd.DataFrame", Dict]) -> pa.Table:
+    def __call__(self, batch: Union[pa.Table, "pd.DataFrame", dict]) -> pa.Table:
         """Write a Batch to the Lance fragment."""
         # Convert dict/numpy arrays to pyarrow table if needed
         if isinstance(batch, dict):
             batch = pa.Table.from_pydict(batch)
-        elif hasattr(batch, '__dataframe__'):  # pandas DataFrame
+        elif hasattr(batch, "__dataframe__"):  # pandas DataFrame
             batch = pa.Table.from_pandas(batch)
 
         transformed = self.transform(batch)
@@ -211,6 +203,3 @@ class LanceFragmentWriter:
                 "schema": [pickle.dumps(schema) for _, schema in fragments],
             }
         )
-
-
-
