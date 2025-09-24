@@ -9,7 +9,7 @@ import pytest
 import ray
 
 from lance_ray.fragment import (
-    LanceCommitter,
+    LanceFragmentCommitter,
     LanceFragmentWriter,
 )
 import lance_ray as lr
@@ -39,7 +39,7 @@ class TestLanceFragmentWriterCommitter:
             ray.data.range(10)
             .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
             .map_batches(LanceFragmentWriter(tmp_path, schema=schema), batch_size=5)
-            .write_datasink(LanceCommitter(tmp_path))
+            .write_datasink(LanceFragmentCommitter(tmp_path))
         )
 
         # Verify the dataset
@@ -78,7 +78,7 @@ class TestLanceFragmentWriterCommitter:
                 LanceFragmentWriter(tmp_path, schema=schema, transform=transform),
                 batch_size=5,
             )
-            .write_datasink(LanceCommitter(tmp_path))
+            .write_datasink(LanceFragmentCommitter(tmp_path))
         )
 
         # Verify the dataset
@@ -97,7 +97,7 @@ class TestLanceFragmentWriterCommitter:
             ray.data.range(5)
             .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
             .map_batches(LanceFragmentWriter(tmp_path, schema=schema))
-            .write_datasink(LanceCommitter(tmp_path, mode="create"))
+            .write_datasink(LanceFragmentCommitter(tmp_path, mode="create"))
         )
 
         # Append more data
@@ -106,7 +106,7 @@ class TestLanceFragmentWriterCommitter:
             .filter(lambda row: row["id"] >= 5)
             .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
             .map_batches(LanceFragmentWriter(tmp_path, schema=schema))
-            .write_datasink(LanceCommitter(tmp_path, mode="append"))
+            .write_datasink(LanceFragmentCommitter(tmp_path, mode="append"))
         )
 
         # Verify the dataset
@@ -126,7 +126,7 @@ class TestLanceFragmentWriterCommitter:
             .filter(lambda row: row["id"] > 10)  # Filter out everything
             .map(lambda x: {"id": x["id"], "str": f"str-{x['id']}"})
             .map_batches(LanceFragmentWriter(tmp_path, schema=schema))
-            .write_datasink(LanceCommitter(tmp_path))
+            .write_datasink(LanceFragmentCommitter(tmp_path))
         )
 
         # Empty write should not create a dataset
@@ -149,7 +149,7 @@ class TestLanceFragmentWriterCommitter:
             ray.data.range(10)
             .map(create_row)
             .map_batches(LanceFragmentWriter(tmp_path, schema=schema))
-            .write_datasink(LanceCommitter(tmp_path))
+            .write_datasink(LanceFragmentCommitter(tmp_path))
         )
 
         # Verify the dataset
@@ -165,8 +165,3 @@ class TestLanceFragmentWriterCommitter:
                 assert str_val is None or str(str_val) == 'nan', f"ID {id_val} should have None/nan but got {str_val}"
             else:
                 assert str_val == f"str-{id_val}", f"ID {id_val} should have 'str-{id_val}' but got {str_val}"
-
-
-
-
-
