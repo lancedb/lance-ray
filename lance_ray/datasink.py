@@ -13,6 +13,8 @@ from ray.data import DataContext
 from ray.data._internal.util import _check_import
 from ray.data.datasource.datasink import Datasink
 
+from .fragment import write_fragment
+
 if TYPE_CHECKING:
     import pandas as pd
     from lance.fragment import FragmentMetadata
@@ -244,8 +246,6 @@ class LanceDatasink(_BaseLanceDatasink):
         blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
         ctx: Any,
     ):
-        from .fragment import write_fragment
-
         fragments_and_schema = write_fragment(
             blocks,
             self.uri,

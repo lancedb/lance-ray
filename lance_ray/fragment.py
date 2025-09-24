@@ -131,6 +131,10 @@ class LanceFragmentWriter:
         `data_storage_version` parameter instead.
     storage_options : Dict[str, Any], optional
         The storage options for the writer. Default is None.
+    retry_params : Dict[str, Any], optional
+        Retry parameters for write operations. Default is None.
+        If provided, should contain keys like 'description', 'match',
+        'max_attempts', and 'max_backoff_s'.
 
     """
 
@@ -146,6 +150,7 @@ class LanceFragmentWriter:
         data_storage_version: Optional[str] = None,
         use_legacy_format: Optional[bool] = False,
         storage_options: Optional[Dict[str, Any]] = None,
+        retry_params: Optional[Dict[str, Any]] = None,
     ):
         if use_legacy_format is not None:
             warnings.warn(
@@ -168,6 +173,7 @@ class LanceFragmentWriter:
         self.max_bytes_per_file = max_bytes_per_file
         self.data_storage_version = data_storage_version
         self.storage_options = storage_options
+        self.retry_params = retry_params
 
     def __call__(self, batch: Union[pa.Table, "pd.DataFrame", Dict]) -> pa.Table:
         """Write a Batch to the Lance fragment."""
@@ -190,7 +196,7 @@ class LanceFragmentWriter:
             max_bytes_per_file=self.max_bytes_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
-            # retry_params defaults to None, which will use minimal retry settings
+            retry_params=self.retry_params,
         )
         return pa.Table.from_pydict(
             {
