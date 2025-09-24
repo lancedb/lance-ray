@@ -1,6 +1,5 @@
 import pickle
 from collections.abc import Iterable
-from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -11,10 +10,8 @@ from typing import (
 
 import pyarrow as pa
 from ray.data import DataContext
-from ray.data._internal.util import _check_import, call_with_retry
+from ray.data._internal.util import _check_import
 from ray.data.datasource.datasink import Datasink
-
-from .pandas import pd_to_arrow
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -22,71 +19,6 @@ if TYPE_CHECKING:
     from lance_namespace import LanceNamespace
 
 
-def _write_fragment(
-    stream: Iterable[Union[pa.Table, "pd.DataFrame"]],
-    uri: str,
-    *,
-    schema: Optional[pa.Schema] = None,
-    max_rows_per_file: int = 64 * 1024 * 1024,
-    max_bytes_per_file: Optional[int] = None,
-    max_rows_per_group: int = 1024,  # Only useful for v1 writer.
-    data_storage_version: Optional[str] = None,
-    storage_options: Optional[dict[str, Any]] = None,
-    retry_params: Optional[dict[str, Any]] = None,
-) -> list[tuple["FragmentMetadata", pa.Schema]]:
-    from lance.dependencies import _PANDAS_AVAILABLE
-    from lance.dependencies import pandas as pd
-    from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
-
-    if schema is None:
-        first = next(iter(stream))
-        if _PANDAS_AVAILABLE and isinstance(first, pd.DataFrame):
-            schema = pa.Schema.from_pandas(first).remove_metadata()
-        elif isinstance(first, dict):
-            tbl = pa.Table.from_pydict(first)
-            schema = tbl.schema.remove_metadata()
-        else:
-            schema = first.schema
-        if len(schema.names) == 0:
-            # Empty table.
-            schema = None
-
-        stream = chain([first], stream)
-
-    def record_batch_converter():
-        for block in stream:
-            tbl = pd_to_arrow(block, schema)
-            yield from tbl.to_batches()
-
-    max_bytes_per_file = (
-        DEFAULT_MAX_BYTES_PER_FILE if max_bytes_per_file is None else max_bytes_per_file
-    )
-
-    reader = pa.RecordBatchReader.from_batches(schema, record_batch_converter())
-
-    # Use default retry params if not provided
-    if retry_params is None:
-        retry_params = {
-            "description": "write lance fragments",
-            "match": [],
-            "max_attempts": 1,
-            "max_backoff_s": 0,
-        }
-
-    fragments = call_with_retry(
-        lambda: write_fragments(
-            reader,
-            uri,
-            schema=schema,
-            max_rows_per_file=max_rows_per_file,
-            max_rows_per_group=max_rows_per_group,
-            max_bytes_per_file=max_bytes_per_file,
-            data_storage_version=data_storage_version,
-            storage_options=storage_options,
-        ),
-        **retry_params,
-    )
-    return [(fragment, schema) for fragment in fragments]
 
 
 class _BaseLanceDatasink(Datasink):
@@ -232,7 +164,7 @@ class LanceDatasink(_BaseLanceDatasink):
     Write a Ray dataset to lance.
 
     If we expect to write larger-than-memory files,
-    we can use `LanceFragmentWriter` and `LanceCommitter`.
+    we can use `LanceFragmentWriter` and `LanceFragmentCommitter`.
 
     Args:
         uri : the base URI of the dataset.
@@ -312,7 +244,9 @@ class LanceDatasink(_BaseLanceDatasink):
         blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
         ctx: Any,
     ):
-        fragments_and_schema = _write_fragment(
+        from .fragment import write_fragment
+
+        fragments_and_schema = write_fragment(
             blocks,
             self.uri,
             schema=self.schema,
@@ -325,3 +259,36 @@ class LanceDatasink(_BaseLanceDatasink):
             (pickle.dumps(fragment), pickle.dumps(schema))
             for fragment, schema in fragments_and_schema
         ]
+
+
+class LanceFragmentCommitter(_BaseLanceDatasink):
+    """Lance Committer as Ray Datasink.
+
+    This is used with `LanceFragmentWriter` to write large-than-memory data to
+    lance file.
+    """
+
+    @property
+    def num_rows_per_write(self) -> int:
+        return 1
+
+    def get_name(self) -> str:
+        return f"LanceCommitter({self.mode})"
+
+    def write(
+        self,
+        blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
+        _ctx: Any,
+    ):
+        """Passthrough the fragments to commit phase"""
+        v = []
+        for block in blocks:
+            # If block is empty, skip to get "fragment" and "schema" filed
+            if len(block) == 0:
+                continue
+
+            for fragment, schema in zip(
+                block["fragment"].to_pylist(), block["schema"].to_pylist()
+            ):
+                v.append((fragment, schema))
+        return v

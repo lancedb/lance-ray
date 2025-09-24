@@ -14,10 +14,8 @@ from .index import create_scalar_index
 from .io import add_columns, read_lance, write_lance
 
 # Fragment API imports
-from .fragment import (
-    LanceFragmentWriter,
-    LanceFragmentCommitter,
-)
+from .fragment import LanceFragmentWriter
+from .datasink import LanceFragmentCommitter
 
 __all__ = [
     "read_lance",
