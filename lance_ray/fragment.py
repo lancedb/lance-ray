@@ -109,12 +109,14 @@ class LanceFragmentWriter:
 
     Parameters
     ----------
-    uri : str, optional
-        The base URI of the dataset. Either provide uri or namespace/table_id.
-    namespace : LanceNamespace, optional
-        The Lance namespace to use.
-    table_id : list[str], optional
-        The table identifier within the namespace.
+    uri : str
+        The base URI of the dataset.
+
+        For namespace-based tables, resolve the URI first using:
+        - namespace.describe_table(DescribeTableRequest(id=table_id)) to get existing table
+        - namespace.create_empty_table(CreateEmptyTableRequest(id=table_id)) to create new table
+
+        Then use the returned location as the uri.
     transform : Callable[[pa.Table], Union[pa.Table, Generator]], optional
         A callable to transform the input batch. Default is None.
     schema : pyarrow.Schema, optional
@@ -144,10 +146,8 @@ class LanceFragmentWriter:
 
     def __init__(
         self,
-        uri: Optional[str] = None,
+        uri: str,
         *,
-        namespace: Optional[Any] = None,  # LanceNamespace
-        table_id: Optional[List[str]] = None,
         transform: Optional[Callable[[pa.Table], Union[pa.Table, Generator]]] = None,
         schema: Optional[pa.Schema] = None,
         max_rows_per_file: int = 1024 * 1024,
@@ -170,35 +170,7 @@ class LanceFragmentWriter:
             else:
                 data_storage_version = "stable"
 
-        # Handle namespace-based table writing
-        merged_storage_options = dict()
-        if storage_options:
-            merged_storage_options.update(storage_options)
-
-        if namespace is not None and table_id is not None:
-            # Always create or get the table for fragment writing
-            # Fragment writer doesn't need to handle append/overwrite modes
-            from lance_namespace import CreateEmptyTableRequest, DescribeTableRequest
-
-            try:
-                # Try to get existing table
-                describe_request = DescribeTableRequest(id=table_id)
-                describe_response = namespace.describe_table(describe_request)
-                self.uri = describe_response.location
-                if describe_response.storage_options:
-                    merged_storage_options.update(describe_response.storage_options)
-            except Exception:
-                # Create new table if doesn't exist
-                create_request = CreateEmptyTableRequest(id=table_id)
-                create_response = namespace.create_empty_table(create_request)
-                self.uri = create_response.location
-                if create_response.storage_options:
-                    merged_storage_options.update(create_response.storage_options)
-        elif uri is not None:
-            self.uri = uri
-        else:
-            raise ValueError("Either uri or namespace/table_id must be provided")
-
+        self.uri = uri
         self.schema = schema
         self.transform = transform if transform is not None else lambda x: x
 
@@ -206,7 +178,7 @@ class LanceFragmentWriter:
         self.max_rows_per_file = max_rows_per_file
         self.max_bytes_per_file = max_bytes_per_file
         self.data_storage_version = data_storage_version
-        self.storage_options = merged_storage_options
+        self.storage_options = storage_options
         self.retry_params = retry_params
 
     def __call__(self, batch: Union[pa.Table, "pd.DataFrame", Dict]) -> pa.Table:
