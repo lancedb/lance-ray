@@ -31,12 +31,22 @@ def _write_fragment(
     data_storage_version: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
 ) -> list[tuple["FragmentMetadata", pa.Schema]]:
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError:
+        pd = None
+
     from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
 
     if schema is None:
         first = next(iter(stream))
-        if isinstance(first, pd.DataFrame):
+
+        if isinstance(first, dict) and pd is None:
+            raise ImportError(
+                "pandas is required to handle DataFrame inputs. "
+                "Install with `pip install lance-ray[pandas]`"
+            )
+        if pd is not None and isinstance(first, pd.DataFrame):
             schema = pa.Schema.from_pandas(first).remove_metadata()
         else:
             schema = first.schema

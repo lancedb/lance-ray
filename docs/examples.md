@@ -2,6 +2,12 @@
 
 ## Basic Usage
 
+**Note:** The following examples require the `pandas`(an optional dependency).
+Install with:
+```bash
+pip install lance-ray[pandas]
+```
+
 ```python
 
 import ray

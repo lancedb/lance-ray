@@ -15,6 +15,12 @@ Lance-Ray combines the distributed computing capabilities of Ray with the effici
 
 ## Quick Start
 
+**Note:** To run this example you need to install pandas (an optional dependency).
+Install with:
+```bash
+pip install lance-ray[pandas]
+```
+
 ```python
 
 import ray

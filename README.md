@@ -34,8 +34,16 @@ uv pip install -e ".[dev]"
 - PyLance >= 0.30.0
 - lance-namespace >=0.0.5
 - PyArrow >= 17.0.0
-- Pandas >= 2.2.0
 - NumPy >= 2.0.0
+
+### Optional Dependencies
+
+By default, `pandas` is not installed with Lance-Ray.
+If you want to use features that accept pandas DataFrames as input, install with:
+
+```bash
+pip install lance-ray[pandas]
+```
 
 ## Quick Start
 
@@ -154,6 +162,12 @@ Add columns to an existing Lance dataset using Ray's distributed processing.
 ## Examples
 
 ### Basic Usage
+
+**Note:** The following example requires the optional `pandas` dependency.
+Install with:
+```bash
+pip install lance-ray[pandas]
+```
 
 ```python
 import pandas as pd

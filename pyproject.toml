@@ -29,11 +29,13 @@ dependencies = [
     "pylance>=0.30.0",
     "lance-namespace>=0.0.5",
     "pyarrow>=17.0.0",
-    "pandas>=2.2.0",
     "numpy>=2.0.0",
 ]
 
 [project.optional-dependencies]
+pandas = [
+    "pandas>=2.2.0",
+]
 dev = [
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
