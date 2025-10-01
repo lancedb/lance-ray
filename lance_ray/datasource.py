@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -34,8 +35,16 @@ class LanceDatasource(Datasource):
         storage_options: Optional[dict[str, str]] = None,
         scanner_options: Optional[dict[str, Any]] = None,
         dataset_options: Optional[dict[str, Any]] = None,
+        fragment_ids: Optional[list[int]] = None,
     ):
         _check_import(self, module="lance", package="pylance")
+
+        self._dataset_options = dataset_options or {}
+        self._scanner_options = scanner_options or {}
+        if columns is not None:
+            self._scanner_options["columns"] = columns
+        if filter is not None:
+            self._scanner_options["filter"] = filter
 
         # Handle namespace-based table loading
         if namespace is not None and table_id is not None:
@@ -46,15 +55,16 @@ class LanceDatasource(Datasource):
             describe_request = DescribeTableRequest(id=table_id)
             describe_response = namespace.describe_table(describe_request)
             self._uri = describe_response.location
+
+            merged_storage_options = dict()
+            if storage_options:
+                merged_storage_options.update(storage_options)
+            if describe_response.storage_options:
+                merged_storage_options.update(describe_response.storage_options)
+            self._storage_options = merged_storage_options
         else:
             self._uri = uri
-        self._scanner_options = scanner_options or {}
-        if columns is not None:
-            self._scanner_options["columns"] = columns
-        if filter is not None:
-            self._scanner_options["filter"] = filter
-        self._storage_options = storage_options
-        self._dataset_options = dataset_options or {}
+            self._storage_options = storage_options
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
@@ -65,6 +75,7 @@ class LanceDatasource(Datasource):
             "max_attempts": self.READ_FRAGMENTS_MAX_ATTEMPTS,
             "max_backoff_s": self.READ_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
         }
+        self._fragment_ids = set(fragment_ids) if fragment_ids else None
 
         self._lance_ds = None
         self._fragments = None
@@ -84,6 +95,10 @@ class LanceDatasource(Datasource):
     def fragments(self) -> list["lance.LanceFragment"]:
         if self._fragments is None:
             self._fragments = self.lance_dataset.get_fragments() or []
+            if self._fragment_ids:
+                self._fragments = [
+                    f for f in self._fragments if f.metadata.id in self._fragment_ids
+                ]
         return self._fragments
 
     def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
@@ -111,14 +126,23 @@ class LanceDatasource(Datasource):
                 for data_file in fragment.data_files()
             ]
 
-            # TODO(chengsu): Take column projection into consideration for schema.
-            metadata = BlockMetadata(
-                num_rows=num_rows,
-                schema=fragments[0].schema,
-                input_files=input_files,
-                size_bytes=None,
-                exec_stats=None,
-            )
+            # Ray 2.48+ no longer has the schema argument...
+            if "schema" in inspect.signature(BlockMetadata.__init__).parameters:
+                # TODO(chengsu): Take column projection into consideration for schema.
+                metadata = BlockMetadata(
+                    num_rows=num_rows,
+                    schema=fragments[0].schema,
+                    input_files=input_files,
+                    size_bytes=None,
+                    exec_stats=None,
+                )
+            else:
+                metadata = BlockMetadata(
+                    num_rows=num_rows,
+                    input_files=input_files,
+                    size_bytes=None,
+                    exec_stats=None,
+                )
 
             read_task = ReadTask(
                 lambda fids=fragment_ids,

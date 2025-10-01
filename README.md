@@ -1,8 +1,12 @@
-# Lance-Ray Integration
+# Lance-Ray
 
-A Python library that provides seamless integration between [Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed columnar data processing.
+[![PyPI](https://img.shields.io/pypi/v/lance-ray.svg)](https://pypi.org/project/lance-ray/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://lancedb.github.io/lance/integrations/ray)
 
-## Overview
+A Python library that provides seamless integration between 
+[Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed data processing.
+
 
 Lance-Ray combines the distributed computing capabilities of Ray with the efficient columnar storage format of Lance, enabling scalable data processing workflows with optimal performance.
 
@@ -318,6 +322,9 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Acknowledgments
 
-- [Ray](https://ray.io/) for distributed computing framework
-- [Lance](https://lancedb.github.io/lance/) for columnar storage format
-- [Apache Arrow](https://arrow.apache.org/) for in-memory data structures
+- [Ray](https://ray.io/) for distributed computing framework  
+- [Lance](https://lancedb.github.io/lance/) for columnar storage format  
+- [Apache Arrow](https://arrow.apache.org/) for in-memory data structures  
+- [User Guide and API Documentation](https://lancedb.github.io/lance/integrations/ray/)  
+- [Contributing Guide and Dev Setup](./CONTRIBUTING.md)
+ 

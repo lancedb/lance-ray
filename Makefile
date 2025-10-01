@@ -14,7 +14,7 @@ lock:
 
 .PHONY: build
 build: lock
-	uv pip install ".[dev]"
+	uv pip install ".[dev,docs]"
 
 .PHONY: test
 test: lock

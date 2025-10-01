@@ -37,6 +37,7 @@ def read_lance(
     storage_options: Optional[dict[str, Any]] = None,
     scanner_options: Optional[dict[str, Any]] = None,
     dataset_options: Optional[dict[str, Any]] = None,
+    fragment_ids: Optional[list[int]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
     concurrency: Optional[int] = None,
     override_num_blocks: Optional[int] = None,
@@ -82,6 +83,7 @@ def read_lance(
         dataset_options: Additional options to configure the `LanceDataset` instance.
             This can include options like `version`, `block_size`, etc. For more
             information, see `Lance API doc <https://lancedb.github.io/lance-python-doc/all-modules.html#lance.LanceDataset>`_.
+        fragment_ids: The fragment IDs to read. If provided, only the fragments with the given IDs will be read.
         ray_remote_args: kwargs passed to :func:`ray.remote` in the read tasks.
         concurrency: The maximum number of Ray tasks to run concurrently. Set this
             to control number of tasks to run concurrently. This doesn't change the
@@ -106,6 +108,7 @@ def read_lance(
         storage_options=storage_options,
         scanner_options=scanner_options,
         dataset_options=dataset_options,
+        fragment_ids=fragment_ids,
     )
 
     return read_datasource(
@@ -156,7 +159,7 @@ def write_lance(
 
     Args:
         ds: The Ray dataset to write.
-        uri: The path to the destination Lance dataset. Either uri OR (namespace + table_id) must be provided.
+        uri: The path to the destination Lance dataset. Can only be provided together with namespace/table_id when creating a new dataset (mode='create' or 'overwrite').
         namespace: A LanceNamespace instance to write the table to. Must be provided together with table_id.
         table_id: The table identifier as a list of strings. Must be provided together with namespace.
         schema: The schema of the dataset. If not provided, it is inferred from the data.
@@ -169,7 +172,7 @@ def write_lance(
             for more details.
         storage_options: The storage options for the writer. Default is None.
     """
-    _validate_uri_or_namespace_args(uri, namespace, table_id)
+    _validate_write_args(uri, namespace, table_id, mode)
 
     datasink = LanceDatasink(
         uri,
@@ -326,6 +329,36 @@ def _validate_uri_or_namespace_args(
         )
 
     if uri is None and (namespace is None or table_id is None):
+        raise ValueError(
+            "Must provide either 'uri' OR both 'namespace' and 'table_id'."
+        )
+
+
+def _validate_write_args(
+    uri: Optional[str],
+    namespace: Optional["LanceNamespace"],
+    table_id: Optional[list[str]],
+    mode: str,
+) -> None:
+    """Validate write arguments.
+
+    For create/overwrite modes, allows both uri and namespace/table_id to be provided
+    together (to create at a specific location and register with namespace).
+    For append mode, requires exactly one of uri OR (namespace + table_id).
+    """
+    # namespace and table_id must be provided together
+    if (namespace is None) != (table_id is None):
+        raise ValueError("Both 'namespace' and 'table_id' must be provided together.")
+
+    # For append mode, use the same validation as read operations
+    if mode == "append" and uri is not None and namespace is not None:
+        raise ValueError(
+            "For append mode, cannot provide both 'uri' and 'namespace'/'table_id'. "
+            "Use either 'uri' OR ('namespace' + 'table_id')."
+        )
+
+    # Must provide at least one way to identify the dataset
+    if uri is None and namespace is None:
         raise ValueError(
             "Must provide either 'uri' OR both 'namespace' and 'table_id'."
         )

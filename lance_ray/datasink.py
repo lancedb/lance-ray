@@ -1,6 +1,5 @@
 import pickle
 from collections.abc import Iterable
-from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -10,14 +9,17 @@ from typing import (
 )
 
 import pyarrow as pa
+from itertools import chain 
+from ray.data import DataContext
 from ray.data._internal.util import _check_import
-from ray.data.block import BlockAccessor
 from ray.data.datasource.datasink import Datasink
+from ray.data._internal.block_accessor import BlockAccessor
+
+from .fragment import write_fragment
 
 if TYPE_CHECKING:
-    import pandas as pd
-    from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
+
 
 
 def _write_fragment(
@@ -79,6 +81,7 @@ def _write_fragment(
     return [(fragment, schema) for fragment in fragments]
 
 
+
 class _BaseLanceDatasink(Datasink):
     """Base class for Lance Datasink."""
 
@@ -95,9 +98,12 @@ class _BaseLanceDatasink(Datasink):
     ):
         super().__init__(*args, **kwargs)
 
+        merged_storage_options = dict()
+        if storage_options:
+            merged_storage_options.update(storage_options)
+
         # Handle namespace-based table writing
         if namespace is not None and table_id is not None:
-            self.namespace = namespace
             self.table_id = table_id
 
             if mode == "append":
@@ -107,19 +113,44 @@ class _BaseLanceDatasink(Datasink):
                 describe_request = DescribeTableRequest(id=table_id)
                 describe_response = namespace.describe_table(describe_request)
                 self.uri = describe_response.location
+                if describe_response.storage_options:
+                    merged_storage_options.update(describe_response.storage_options)
+            elif mode == "overwrite":
+                # For overwrite mode, try to get existing table, fallback to create
+                from lance_namespace import (
+                    CreateEmptyTableRequest,
+                    DescribeTableRequest,
+                )
+
+                try:
+                    describe_request = DescribeTableRequest(id=table_id)
+                    describe_response = namespace.describe_table(describe_request)
+                    self.uri = describe_response.location
+                    if describe_response.storage_options:
+                        merged_storage_options.update(describe_response.storage_options)
+                except Exception:
+                    create_request = CreateEmptyTableRequest(id=table_id)
+                    create_response = namespace.create_empty_table(create_request)
+                    self.uri = create_response.location
+                    if create_response.storage_options:
+                        merged_storage_options.update(create_response.storage_options)
             else:
-                # For create/overwrite modes, we'll determine URI based on namespace implementation
-                # For now, we'll let the namespace handle the URI generation after write
-                self.uri = None  # Will be set during write process
+                # create mode, create an empty table
+                from lance_namespace import CreateEmptyTableRequest
+
+                create_request = CreateEmptyTableRequest(id=table_id)
+                create_response = namespace.create_empty_table(create_request)
+                self.uri = create_response.location
+                if create_response.storage_options:
+                    merged_storage_options.update(create_response.storage_options)
         else:
-            self.namespace = None
             self.table_id = None
             self.uri = uri
 
         self.schema = schema
         self.mode = mode
         self.read_version: Optional[int] = None
-        self.storage_options = storage_options
+        self.storage_options = merged_storage_options
 
     @property
     def supports_distributed_writes(self) -> bool:
@@ -187,36 +218,6 @@ class _BaseLanceDatasink(Datasink):
                 storage_options=self.storage_options,
             )
 
-            # Register table with namespace if using namespace-based writing
-            if (
-                self.namespace is not None
-                and self.table_id is not None
-                and self.mode in {"create", "overwrite"}
-            ):
-                self._register_table_with_namespace()
-
-    def _register_table_with_namespace(self):
-        """Register the table with the namespace after successful write."""
-        try:
-            from lance_namespace import RegisterTableRequest
-
-            # Map write mode to register mode
-            register_mode = "CREATE" if self.mode == "create" else "OVERWRITE"
-
-            register_request = RegisterTableRequest(
-                id=self.table_id, location=self.uri, mode=register_mode
-            )
-
-            self.namespace.register_table(register_request)
-        except Exception as e:
-            import warnings
-
-            warnings.warn(
-                f"Failed to register table {self.table_id} with namespace: {e}",
-                RuntimeWarning,
-                stacklevel=3,
-            )
-
 
 class LanceDatasink(_BaseLanceDatasink):
     """Lance Ray Datasink.
@@ -224,7 +225,7 @@ class LanceDatasink(_BaseLanceDatasink):
     Write a Ray dataset to lance.
 
     If we expect to write larger-than-memory files,
-    we can use `LanceFragmentWriter` and `LanceCommitter`.
+    we can use `LanceFragmentWriter` and `LanceFragmentCommitter`.
 
     Args:
         uri : the base URI of the dataset.
@@ -247,6 +248,9 @@ class LanceDatasink(_BaseLanceDatasink):
     """
 
     NAME = "Lance"
+    WRITE_FRAGMENTS_ERRORS_TO_RETRY = ["LanceError(IO)"]
+    WRITE_FRAGMENTS_MAX_ATTEMPTS = 10
+    WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS = 32
 
     def __init__(
         self,
@@ -279,6 +283,16 @@ class LanceDatasink(_BaseLanceDatasink):
         # if mode is append, read_version is read from existing dataset.
         self.read_version: Optional[int] = None
 
+        match = []
+        match.extend(self.WRITE_FRAGMENTS_ERRORS_TO_RETRY)
+        match.extend(DataContext.get_current().retried_io_errors)
+        self._retry_params = {
+            "description": "write lance fragments",
+            "match": match,
+            "max_attempts": self.WRITE_FRAGMENTS_MAX_ATTEMPTS,
+            "max_backoff_s": self.WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
+        }
+
     @property
     def min_rows_per_write(self) -> int:
         return self.min_rows_per_file
@@ -291,15 +305,49 @@ class LanceDatasink(_BaseLanceDatasink):
         blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
         ctx: Any,
     ):
-        fragments_and_schema = _write_fragment(
+        fragments_and_schema = write_fragment(
             blocks,
             self.uri,
             schema=self.schema,
             max_rows_per_file=self.max_rows_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
+            retry_params=self._retry_params,
         )
         return [
             (pickle.dumps(fragment), pickle.dumps(schema))
             for fragment, schema in fragments_and_schema
         ]
+
+
+class LanceFragmentCommitter(_BaseLanceDatasink):
+    """Lance Committer as Ray Datasink.
+
+    This is used with `LanceFragmentWriter` to write large-than-memory data to
+    lance file.
+    """
+
+    @property
+    def num_rows_per_write(self) -> int:
+        return 1
+
+    def get_name(self) -> str:
+        return f"LanceCommitter({self.mode})"
+
+    def write(
+        self,
+        blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
+        _ctx: Any,
+    ):
+        """Passthrough the fragments to commit phase"""
+        v = []
+        for block in blocks:
+            # If block is empty, skip to get "fragment" and "schema" filed
+            if len(block) == 0:
+                continue
+
+            for fragment, schema in zip(
+                block["fragment"].to_pylist(), block["schema"].to_pylist(), strict=False
+            ):
+                v.append((fragment, schema))
+        return v
