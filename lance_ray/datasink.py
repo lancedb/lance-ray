@@ -4,17 +4,17 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pyarrow as pa
-from ray.data import DataContext
+from ray.data._internal.block_accessor import BlockAccessor
 from ray.data._internal.util import _check_import
 from ray.data.datasource.datasink import Datasink
-from ray.data._internal.block_accessor import BlockAccessor
 
 from .fragment import write_fragment
 
 if TYPE_CHECKING:
-    import pandas as pd
     from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
+
+    import pandas as pd
 
 
 def _write_fragment(
@@ -148,6 +148,7 @@ class _BaseLanceDatasink(Datasink):
         write_result: list[list[tuple[str, str]]],
     ):
         import warnings
+
         import lance
 
         write_results = write_result
