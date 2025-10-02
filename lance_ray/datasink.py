@@ -1,15 +1,10 @@
 import pickle
 from collections.abc import Iterable
 from itertools import chain
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    Optional,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pyarrow as pa
+from ray.data import DataContext
 from ray.data._internal.util import _check_import
 from ray.data.block import BlockAccessor
 from ray.data.datasource.datasink import Datasink
@@ -17,6 +12,7 @@ from ray.data.datasource.datasink import Datasink
 if TYPE_CHECKING:
     import pandas as pd
     from lance.fragment import FragmentMetadata
+    from lance_namespace import LanceNamespace
 
 
 def _write_fragment(
@@ -26,7 +22,7 @@ def _write_fragment(
     schema: Optional[pa.Schema] = None,
     max_rows_per_file: int = 64 * 1024 * 1024,
     max_bytes_per_file: Optional[int] = None,
-    max_rows_per_group: int = 1024,  # Only useful for v1 writer.
+    max_rows_per_group: int = 1024,
     data_storage_version: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
 ) -> list[tuple["FragmentMetadata", pa.Schema]]:
@@ -40,7 +36,6 @@ def _write_fragment(
         else:
             schema = first.schema
         if len(schema.names) == 0:
-            # Empty table.
             schema = None
 
         stream = chain([first], stream)
@@ -109,7 +104,6 @@ class _BaseLanceDatasink(Datasink):
         write_result: list[list[tuple[str, str]]],
     ):
         import warnings
-
         import lance
 
         write_results = write_result
@@ -138,8 +132,6 @@ class _BaseLanceDatasink(Datasink):
                 fragment = pickle.loads(fragment_str)
                 fragments.append(fragment)
                 schema = pickle.loads(schema_str)
-        # Check weather writer has fragments or not.
-        # Skip commit when there are no fragments.
         if not schema:
             return
         op = None
@@ -153,6 +145,26 @@ class _BaseLanceDatasink(Datasink):
                 op,
                 read_version=self.read_version,
                 storage_options=self.storage_options,
+            )
+
+    def _register_table_with_namespace(self):
+        try:
+            from lance_namespace import RegisterTableRequest
+
+            register_mode = "CREATE" if self.mode == "create" else "OVERWRITE"
+
+            register_request = RegisterTableRequest(
+                id=self.table_id, location=self.uri, mode=register_mode
+            )
+
+            self.namespace.register_table(register_request)
+        except Exception as e:
+            import warnings
+
+            warnings.warn(
+                f"Failed to register table {self.table_id} with namespace: {e}",
+                RuntimeWarning,
+                stacklevel=3,
             )
 
 
@@ -210,7 +222,6 @@ class LanceDatasink(_BaseLanceDatasink):
         self.min_rows_per_file = min_rows_per_file
         self.max_rows_per_file = max_rows_per_file
         self.data_storage_version = data_storage_version
-        # if mode is append, read_version is read from existing dataset.
         self.read_version: Optional[int] = None
 
     @property
