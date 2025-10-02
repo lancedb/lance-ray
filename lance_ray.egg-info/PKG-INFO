@@ -1,0 +1,559 @@
+Metadata-Version: 2.4
+Name: lance-ray
+Version: 0.0.1
+Summary: Ray integration for Lance columnar format
+Author-email: Lance Ray Team <team@lance-ray.dev>
+License:                                  Apache License
+                                   Version 2.0, January 2004
+                                http://www.apache.org/licenses/
+        
+           TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+        
+           1. Definitions.
+        
+              "License" shall mean the terms and conditions for use, reproduction,
+              and distribution as defined by Sections 1 through 9 of this document.
+        
+              "Licensor" shall mean the copyright owner or entity authorized by
+              the copyright owner that is granting the License.
+        
+              "Legal Entity" shall mean the union of the acting entity and all
+              other entities that control, are controlled by, or are under common
+              control with that entity. For the purposes of this definition,
+              "control" means (i) the power, direct or indirect, to cause the
+              direction or management of such entity, whether by contract or
+              otherwise, or (ii) ownership of fifty percent (50%) or more of the
+              outstanding shares, or (iii) beneficial ownership of such entity.
+        
+              "You" (or "Your") shall mean an individual or Legal Entity
+              exercising permissions granted by this License.
+        
+              "Source" form shall mean the preferred form for making modifications,
+              including but not limited to software source code, documentation
+              source, and configuration files.
+        
+              "Object" form shall mean any form resulting from mechanical
+              transformation or translation of a Source form, including but
+              not limited to compiled object code, generated documentation,
+              and conversions to other media types.
+        
+              "Work" shall mean the work of authorship, whether in Source or
+              Object form, made available under the License, as indicated by a
+              copyright notice that is included in or attached to the work
+              (an example is provided in the Appendix below).
+        
+              "Derivative Works" shall mean any work, whether in Source or Object
+              form, that is based on (or derived from) the Work and for which the
+              editorial revisions, annotations, elaborations, or other modifications
+              represent, as a whole, an original work of authorship. For the purposes
+              of this License, Derivative Works shall not include works that remain
+              separable from, or merely link (or bind by name) to the interfaces of,
+              the Work and Derivative Works thereof.
+        
+              "Contribution" shall mean any work of authorship, including
+              the original version of the Work and any modifications or additions
+              to that Work or Derivative Works thereof, that is intentionally
+              submitted to Licensor for inclusion in the Work by the copyright owner
+              or by an individual or Legal Entity authorized to submit on behalf of
+              the copyright owner. For the purposes of this definition, "submitted"
+              means any form of electronic, verbal, or written communication sent
+              to the Licensor or its representatives, including but not limited to
+              communication on electronic mailing lists, source code control systems,
+              and issue tracking systems that are managed by, or on behalf of, the
+              Licensor for the purpose of discussing and improving the Work, but
+              excluding communication that is conspicuously marked or otherwise
+              designated in writing by the copyright owner as "Not a Contribution."
+        
+              "Contributor" shall mean Licensor and any individual or Legal Entity
+              on behalf of whom a Contribution has been received by Licensor and
+              subsequently incorporated within the Work.
+        
+           2. Grant of Copyright License. Subject to the terms and conditions of
+              this License, each Contributor hereby grants to You a perpetual,
+              worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+              copyright license to reproduce, prepare Derivative Works of,
+              publicly display, publicly perform, sublicense, and distribute the
+              Work and such Derivative Works in Source or Object form.
+        
+           3. Grant of Patent License. Subject to the terms and conditions of
+              this License, each Contributor hereby grants to You a perpetual,
+              worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+              (except as stated in this section) patent license to make, have made,
+              use, offer to sell, sell, import, and otherwise transfer the Work,
+              where such license applies only to those patent claims licensable
+              by such Contributor that are necessarily infringed by their
+              Contribution(s) alone or by combination of their Contribution(s)
+              with the Work to which such Contribution(s) was submitted. If You
+              institute patent litigation against any entity (including a
+              cross-claim or counterclaim in a lawsuit) alleging that the Work
+              or a Contribution incorporated within the Work constitutes direct
+              or contributory patent infringement, then any patent licenses
+              granted to You under this License for that Work shall terminate
+              as of the date such litigation is filed.
+        
+           4. Redistribution. You may reproduce and distribute copies of the
+              Work or Derivative Works thereof in any medium, with or without
+              modifications, and in Source or Object form, provided that You
+              meet the following conditions:
+        
+              (a) You must give any other recipients of the Work or
+                  Derivative Works a copy of this License; and
+        
+              (b) You must cause any modified files to carry prominent notices
+                  stating that You changed the files; and
+        
+              (c) You must retain, in the Source form of any Derivative Works
+                  that You distribute, all copyright, patent, trademark, and
+                  attribution notices from the Source form of the Work,
+                  excluding those notices that do not pertain to any part of
+                  the Derivative Works; and
+        
+              (d) If the Work includes a "NOTICE" text file as part of its
+                  distribution, then any Derivative Works that You distribute must
+                  include a readable copy of the attribution notices contained
+                  within such NOTICE file, excluding those notices that do not
+                  pertain to any part of the Derivative Works, in at least one
+                  of the following places: within a NOTICE text file distributed
+                  as part of the Derivative Works; within the Source form or
+                  documentation, if provided along with the Derivative Works; or,
+                  within a display generated by the Derivative Works, if and
+                  wherever such third-party notices normally appear. The contents
+                  of the NOTICE file are for informational purposes only and
+                  do not modify the License. You may add Your own attribution
+                  notices within Derivative Works that You distribute, alongside
+                  or as an addendum to the NOTICE text from the Work, provided
+                  that such additional attribution notices cannot be construed
+                  as modifying the License.
+        
+              You may add Your own copyright statement to Your modifications and
+              may provide additional or different license terms and conditions
+              for use, reproduction, or distribution of Your modifications, or
+              for any such Derivative Works as a whole, provided Your use,
+              reproduction, and distribution of the Work otherwise complies with
+              the conditions stated in this License.
+        
+           5. Submission of Contributions. Unless You explicitly state otherwise,
+              any Contribution intentionally submitted for inclusion in the Work
+              by You to the Licensor shall be under the terms and conditions of
+              this License, without any additional terms or conditions.
+              Notwithstanding the above, nothing herein shall supersede or modify
+              the terms of any separate license agreement you may have executed
+              with Licensor regarding such Contributions.
+        
+           6. Trademarks. This License does not grant permission to use the trade
+              names, trademarks, service marks, or product names of the Licensor,
+              except as required for reasonable and customary use in describing the
+              origin of the Work and reproducing the content of the NOTICE file.
+        
+           7. Disclaimer of Warranty. Unless required by applicable law or
+              agreed to in writing, Licensor provides the Work (and each
+              Contributor provides its Contributions) on an "AS IS" BASIS,
+              WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+              implied, including, without limitation, any warranties or conditions
+              of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+              PARTICULAR PURPOSE. You are solely responsible for determining the
+              appropriateness of using or redistributing the Work and assume any
+              risks associated with Your exercise of permissions under this License.
+        
+           8. Limitation of Liability. In no event and under no legal theory,
+              whether in tort (including negligence), contract, or otherwise,
+              unless required by applicable law (such as deliberate and grossly
+              negligent acts) or agreed to in writing, shall any Contributor be
+              liable to You for damages, including any direct, indirect, special,
+              incidental, or consequential damages of any character arising as a
+              result of this License or out of the use or inability to use the
+              Work (including but not limited to damages for loss of goodwill,
+              work stoppage, computer failure or malfunction, or any and all
+              other commercial damages or losses), even if such Contributor
+              has been advised of the possibility of such damages.
+        
+           9. Accepting Warranty or Additional Liability. While redistributing
+              the Work or Derivative Works thereof, You may choose to offer,
+              and charge a fee for, acceptance of support, warranty, indemnity,
+              or other liability obligations and/or rights consistent with this
+              License. However, in accepting such obligations, You may act only
+              on Your own behalf and on Your sole responsibility, not on behalf
+              of any other Contributor, and only if You agree to indemnify,
+              defend, and hold each Contributor harmless for any liability
+              incurred by, or claims asserted against, such Contributor by reason
+              of your accepting any such warranty or additional liability.
+        
+           END OF TERMS AND CONDITIONS
+        
+           APPENDIX: How to apply the Apache License to your work.
+        
+              To apply the Apache License to your work, attach the following
+              boilerplate notice, with the fields enclosed by brackets "[]"
+              replaced with your own identifying information. (Don't include
+              the brackets!)  The text should be enclosed in the appropriate
+              comment syntax for the file format. We also recommend that a
+              file or class name and description of purpose be included on the
+              same "printed page" as the copyright notice for easier
+              identification within third-party archives.
+        
+           Copyright [yyyy] [name of copyright owner]
+        
+           Licensed under the Apache License, Version 2.0 (the "License");
+           you may not use this file except in compliance with the License.
+           You may obtain a copy of the License at
+        
+               http://www.apache.org/licenses/LICENSE-2.0
+        
+           Unless required by applicable law or agreed to in writing, software
+           distributed under the License is distributed on an "AS IS" BASIS,
+           WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+           See the License for the specific language governing permissions and
+           limitations under the License.
+        
+Project-URL: Homepage, https://github.com/lancedb/lance-ray
+Project-URL: Repository, https://github.com/lancedb/lance-ray
+Keywords: ray,lance,distributed,columnar,data
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: ray[default]>=2.40.0
+Requires-Dist: pylance>=0.30.0
+Requires-Dist: lance-namespace>=0.0.5
+Requires-Dist: pyarrow>=17.0.0
+Requires-Dist: numpy>=2.0.0
+Provides-Extra: pandas
+Requires-Dist: pandas>=2.2.0; extra == "pandas"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.4.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=1.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"
+Requires-Dist: pytest-xdist>=3.6.0; extra == "dev"
+Requires-Dist: ruff>=0.8.0; extra == "dev"
+Dynamic: license-file
+
+# Lance-Ray Integration
+
+A Python library that provides seamless integration between [Ray](https://ray.io/) and [Lance](https://lancedb.github.io/lance/) for distributed columnar data processing.
+
+## Overview
+
+Lance-Ray combines the distributed computing capabilities of Ray with the efficient columnar storage format of Lance, enabling scalable data processing workflows with optimal performance.
+
+## Features
+
+- **Distributed Lance Operations**: Leverage Ray's distributed computing for Lance dataset operations
+- **Seamless Data Conversion**: Easy conversion between Ray datasets and Lance datasets
+- **Optimized I/O**: Efficient reading and writing of Lance datasets with Ray integration
+- **Schema Validation**: Automatic schema compatibility checking between Ray and Lance
+- **Flexible Filtering**: Support for complex filtering operations on distributed Lance data
+- **Catalog Integration**: Support for working with Lance datasets stored in various catalog services (e.g. Hive MetaStore, Iceberg REST Catalog, Unity, Gravitino, AWS Glue, etc.)
+
+## Installation
+
+```bash
+# Install from source
+git clone https://github.com/lance-ray/lance-ray.git
+cd lance-ray
+uv pip install -e .
+
+# Or install with development dependencies
+uv pip install -e ".[dev]"
+```
+
+## Requirements
+
+- Python >= 3.10
+- Ray >= 2.40.0
+- PyLance >= 0.30.0
+- lance-namespace >=0.0.5
+- PyArrow >= 17.0.0
+- NumPy >= 2.0.0
+
+### Optional Dependencies
+
+By default, `pandas` is not installed with Lance-Ray.
+If you want to use features that accept pandas DataFrames as input, install with:
+
+```bash
+pip install lance-ray[pandas]
+```
+
+## Quick Start
+
+```python
+import ray
+from lance_ray import read_lance, write_lance
+
+# Initialize Ray
+ray.init()
+
+# Create a Ray dataset
+data = ray.data.range(1000).map(lambda row: {"id": row["id"], "value": row["id"] * 2})
+
+# Write to Lance format
+write_lance(data, "my_dataset.lance")
+
+# Read Lance dataset back as Ray dataset
+ray_dataset = read_lance("my_dataset.lance")
+
+# Perform distributed operations
+result = ray_dataset.filter(lambda row: row["value"] > 100).count()
+print(f"Filtered count: {result}")
+```
+
+### Using Lance Namespace
+
+For enterprise environments with metadata catalogs, you can use Lance Namespace integration:
+
+```python
+import ray
+import lance_namespace as ln
+from lance_ray import read_lance, write_lance
+
+# Initialize Ray
+ray.init()
+
+# Connect to a metadata catalog (directory-based example)
+namespace = ln.connect("dir", {"root": "/path/to/tables"})
+
+# Create a Ray dataset
+data = ray.data.range(1000).map(lambda row: {"id": row["id"], "value": row["id"] * 2})
+
+# Write to Lance format using metadata catalog
+write_lance(data, namespace=namespace, table_id=["my_table"])
+
+# Read Lance dataset back using metadata catalog
+ray_dataset = read_lance(namespace=namespace, table_id=["my_table"])
+
+# Perform distributed operations
+result = ray_dataset.filter(lambda row: row["value"] > 100).count()
+print(f"Filtered count: {result}")
+```
+
+## API Reference
+
+### I/O Functions
+
+#### `read_lance(uri=None, *, namespace=None, table_id=None, columns=None, filter=None, storage_options=None, **kwargs)`
+
+Read a Lance dataset and return a Ray Dataset.
+
+**Parameters:**
+- `uri`: The URI of the Lance dataset to read from (either uri OR namespace+table_id required)
+- `namespace`: LanceNamespace instance for metadata catalog integration (requires table_id)
+- `table_id`: Table identifier as list of strings (requires namespace)
+- `columns`: Optional list of column names to read
+- `filter`: Optional filter expression to apply
+- `storage_options`: Optional storage configuration dictionary
+- `scanner_options`: Optional scanner configuration dictionary
+- `ray_remote_args`: Optional kwargs for Ray remote tasks
+- `concurrency`: Optional maximum number of concurrent Ray tasks
+- `override_num_blocks`: Optional override for number of output blocks
+
+**Returns:** Ray Dataset
+
+#### `write_lance(ds, uri=None, *, namespace=None, table_id=None, schema=None, mode="create", **kwargs)`
+
+Write a Ray Dataset to Lance format.
+
+**Parameters:**
+- `ds`: Ray Dataset to write
+- `uri`: Path to the destination Lance dataset (either uri OR namespace+table_id required)
+- `namespace`: LanceNamespace instance for metadata catalog integration (requires table_id)
+- `table_id`: Table identifier as list of strings (requires namespace)
+- `schema`: Optional PyArrow schema
+- `mode`: Write mode - "create", "append", or "overwrite"
+- `min_rows_per_file`: Minimum rows per file (default: 1024 * 1024)
+- `max_rows_per_file`: Maximum rows per file (default: 64 * 1024 * 1024)
+- `data_storage_version`: Optional data storage version
+- `storage_options`: Optional storage configuration dictionary
+- `ray_remote_args`: Optional kwargs for Ray remote tasks
+- `concurrency`: Optional maximum number of concurrent Ray tasks
+
+**Returns:** None
+
+#### `add_columns(uri=None, *, namespace=None, table_id=None, transform, **kwargs)`
+
+Add columns to an existing Lance dataset using Ray's distributed processing.
+
+**Parameters:**
+- `uri`: Path to the Lance dataset (either uri OR namespace+table_id required)
+- `namespace`: LanceNamespace instance for metadata catalog integration (requires table_id)
+- `table_id`: Table identifier as list of strings (requires namespace)
+- `transform`: Transform function to apply for adding columns
+- `filter`: Optional filter expression to apply
+- `read_columns`: Optional list of columns to read from original dataset
+- `reader_schema`: Optional schema for the reader
+- `read_version`: Optional version to read
+- `ray_remote_args`: Optional kwargs for Ray remote tasks
+- `storage_options`: Optional storage configuration dictionary
+- `batch_size`: Batch size for processing (default: 1024)
+- `concurrency`: Optional number of concurrent processes
+
+**Returns:** None
+
+## Examples
+
+### Basic Usage
+
+**Note:** The following example requires the optional `pandas` dependency.
+Install with:
+```bash
+pip install lance-ray[pandas]
+```
+
+```python
+import pandas as pd
+import ray
+from lance_ray import read_lance, write_lance
+
+# Initialize Ray
+ray.init()
+
+# Create sample data
+sample_data = {
+    "user_id": range(100),
+    "name": [f"User_{i}" for i in range(100)],
+    "age": [20 + (i % 50) for i in range(100)],
+    "score": [50.0 + (i % 100) * 0.5 for i in range(100)],
+}
+df = pd.DataFrame(sample_data)
+
+# Create Ray dataset
+ds = ray.data.from_pandas(df)
+
+# Write to Lance format
+write_lance(ds, "sample_dataset.lance")
+
+# Read Lance dataset back
+ds = read_lance("sample_dataset.lance")
+
+# Perform distributed operations
+filtered_ds = ds.filter(lambda row: row["age"] > 30)
+print(f"Filtered count: {filtered_ds.count()}")
+
+# Read with column selection and filtering
+ds_filtered = read_lance(
+    "sample_dataset.lance",
+    columns=["user_id", "name", "score"],
+    filter="score > 75.0"
+)
+print(f"Schema: {ds_filtered.schema()}")
+```
+
+### Advanced Usage
+
+```python
+# Write with custom options
+write_lance(
+    ds,
+    "dataset.lance",
+    mode="overwrite",
+    min_rows_per_file=1000,
+    max_rows_per_file=50000,
+    data_storage_version="stable"
+)
+
+# Read with storage options and concurrency control
+ds = read_lance(
+    "s3://bucket/dataset.lance",
+    storage_options={"aws_access_key_id": "...", "aws_secret_access_key": "..."},
+    concurrency=10,
+    ray_remote_args={"num_cpus": 2}
+)
+
+# Using different metadata catalog backends
+import lance_namespace as ln
+
+# Directory-based namespace (for local development)
+dir_namespace = ln.connect("dir", {"root": "/local/tables"})
+
+# REST API-based namespace (for enterprise catalogs like Unity, Gravitino)
+rest_namespace = ln.connect("rest", {
+    "base_url": "https://catalog-api.example.com",
+    "api_key": "your-api-key"
+})
+
+# Write using metadata catalog
+write_lance(ds, namespace=dir_namespace, table_id=["processed_data"], mode="overwrite")
+
+# Read using metadata catalog
+ds = read_lance(namespace=dir_namespace, table_id=["processed_data"])
+
+# Add columns using metadata catalog
+from lance_ray import add_columns
+import pyarrow as pa
+
+def add_computed_column(batch: pa.RecordBatch) -> pa.RecordBatch:
+    df = batch.to_pandas()
+    df['computed'] = df['value'] * 2 + df['id']
+    return pa.RecordBatch.from_pandas(df[["computed"]])
+
+add_columns(
+    namespace=dir_namespace,
+    table_id=["processed_data"],
+    transform=add_computed_column,
+    concurrency=4
+)
+```
+
+See the `examples/` directory for more comprehensive usage examples:
+
+- `basic_usage.py`: Basic Ray-Lance integration workflow
+
+## Development
+
+### Setup Development Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/lance-ray/lance-ray.git
+cd lance-ray
+
+# Install in development mode
+uv pip install -e ".[dev]"
+
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=lance_ray
+
+
+### Code Quality
+
+```bash
+# Format code
+uv run ruff format lance_ray/ tests/ examples/
+
+# Lint code
+uv run ruff check lance_ray/ tests/ examples/
+
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature-name`)
+3. Make your changes
+4. Add tests for new functionality
+5. Run the test suite and ensure all tests pass
+6. Submit a pull request
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Ray](https://ray.io/) for distributed computing framework
+- [Lance](https://lancedb.github.io/lance/) for columnar storage format
+- [Apache Arrow](https://arrow.apache.org/) for in-memory data structures

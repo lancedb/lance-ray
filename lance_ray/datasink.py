@@ -1,24 +1,78 @@
 import pickle
 from collections.abc import Iterable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    Optional,
-    Union,
-)
+from itertools import chain
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pyarrow as pa
-from ray.data import DataContext
+from ray.data._internal.block_accessor import BlockAccessor
 from ray.data._internal.util import _check_import
 from ray.data.datasource.datasink import Datasink
 
 from .fragment import write_fragment
 
 if TYPE_CHECKING:
+    from lance.fragment import FragmentMetadata
     from lance_namespace import LanceNamespace
 
     import pandas as pd
+
+
+def _write_fragment(
+    stream: Iterable[Union[pa.Table, "pd.DataFrame"]],
+    uri: str,
+    *,
+    schema: Optional[pa.Schema] = None,
+    max_rows_per_file: int = 64 * 1024 * 1024,
+    max_bytes_per_file: Optional[int] = None,
+    max_rows_per_group: int = 1024,
+    data_storage_version: Optional[str] = None,
+    storage_options: Optional[dict[str, Any]] = None,
+) -> list[tuple["FragmentMetadata", pa.Schema]]:
+    try:
+        import pandas as pd
+    except ImportError:
+        pd = None
+
+    from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
+
+    if schema is None:
+        first = next(iter(stream))
+
+        if isinstance(first, dict) and pd is None:
+            raise ImportError(
+                "pandas is required to handle DataFrame inputs. "
+                "Install with `pip install lance-ray[pandas]`"
+            )
+        if pd is not None and isinstance(first, pd.DataFrame):
+            schema = pa.Schema.from_pandas(first).remove_metadata()
+        else:
+            schema = first.schema
+        if len(schema.names) == 0:
+            schema = None
+
+        stream = chain([first], stream)
+
+    def record_batch_converter():
+        for block in stream:
+            tbl = BlockAccessor.for_block(block).to_arrow()
+            yield from tbl.to_batches()
+
+    max_bytes_per_file = (
+        DEFAULT_MAX_BYTES_PER_FILE if max_bytes_per_file is None else max_bytes_per_file
+    )
+
+    reader = pa.RecordBatchReader.from_batches(schema, record_batch_converter())
+    fragments = write_fragments(
+        reader,
+        uri,
+        schema=schema,
+        max_rows_per_file=max_rows_per_file,
+        max_rows_per_group=max_rows_per_group,
+        max_bytes_per_file=max_bytes_per_file,
+        data_storage_version=data_storage_version,
+        storage_options=storage_options,
+    )
+    return [(fragment, schema) for fragment in fragments]
 
 
 class _BaseLanceDatasink(Datasink):
@@ -41,12 +95,10 @@ class _BaseLanceDatasink(Datasink):
         if storage_options:
             merged_storage_options.update(storage_options)
 
-        # Handle namespace-based table writing
         if namespace is not None and table_id is not None:
             self.table_id = table_id
 
             if mode == "append":
-                # For append mode, we need to get existing table URI
                 from lance_namespace import DescribeTableRequest
 
                 describe_request = DescribeTableRequest(id=table_id)
@@ -55,11 +107,7 @@ class _BaseLanceDatasink(Datasink):
                 if describe_response.storage_options:
                     merged_storage_options.update(describe_response.storage_options)
             elif mode == "overwrite":
-                # For overwrite mode, try to get existing table, fallback to create
-                from lance_namespace import (
-                    CreateEmptyTableRequest,
-                    DescribeTableRequest,
-                )
+                from lance_namespace import DescribeTableRequest
 
                 try:
                     describe_request = DescribeTableRequest(id=table_id)
@@ -68,20 +116,9 @@ class _BaseLanceDatasink(Datasink):
                     if describe_response.storage_options:
                         merged_storage_options.update(describe_response.storage_options)
                 except Exception:
-                    create_request = CreateEmptyTableRequest(id=table_id)
-                    create_response = namespace.create_empty_table(create_request)
-                    self.uri = create_response.location
-                    if create_response.storage_options:
-                        merged_storage_options.update(create_response.storage_options)
+                    self.uri = None
             else:
-                # create mode, create an empty table
-                from lance_namespace import CreateEmptyTableRequest
-
-                create_request = CreateEmptyTableRequest(id=table_id)
-                create_response = namespace.create_empty_table(create_request)
-                self.uri = create_response.location
-                if create_response.storage_options:
-                    merged_storage_options.update(create_response.storage_options)
+                self.uri = None
         else:
             self.table_id = None
             self.uri = uri
@@ -140,8 +177,6 @@ class _BaseLanceDatasink(Datasink):
                 fragment = pickle.loads(fragment_str)
                 fragments.append(fragment)
                 schema = pickle.loads(schema_str)
-        # Check weather writer has fragments or not.
-        # Skip commit when there are no fragments.
         if not schema:
             return
         op = None
@@ -157,39 +192,29 @@ class _BaseLanceDatasink(Datasink):
                 storage_options=self.storage_options,
             )
 
+    def _register_table_with_namespace(self):
+        try:
+            from lance_namespace import RegisterTableRequest
+
+            register_mode = "CREATE" if self.mode == "create" else "OVERWRITE"
+
+            register_request = RegisterTableRequest(
+                id=self.table_id, location=self.uri, mode=register_mode
+            )
+
+            self.namespace.register_table(register_request)
+        except Exception as e:
+            import warnings
+
+            warnings.warn(
+                f"Failed to register table {self.table_id} with namespace: {e}",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
 
 class LanceDatasink(_BaseLanceDatasink):
-    """Lance Ray Datasink.
-
-    Write a Ray dataset to lance.
-
-    If we expect to write larger-than-memory files,
-    we can use `LanceFragmentWriter` and `LanceFragmentCommitter`.
-
-    Args:
-        uri : the base URI of the dataset.
-        schema : pyarrow.Schema, optional.
-            The schema of the dataset.
-        mode : str, optional
-            The write mode. Default is 'append'.
-            Choices are 'append', 'create', 'overwrite'.
-        min_rows_per_file : int, optional
-            The minimum number of rows per file. Default is 1024 * 1024.
-        max_rows_per_file : int, optional
-            The maximum number of rows per file. Default is 64 * 1024 * 1024.
-        data_storage_version: optional, str, default None
-            The version of the data storage format to use. Newer versions are more
-            efficient but require newer versions of lance to read.  The default is
-            "legacy" which will use the legacy v1 version.  See the user guide
-            for more details.
-        storage_options : Dict[str, Any], optional
-            The storage options for the writer. Default is None.
-    """
-
     NAME = "Lance"
-    WRITE_FRAGMENTS_ERRORS_TO_RETRY = ["LanceError(IO)"]
-    WRITE_FRAGMENTS_MAX_ATTEMPTS = 10
-    WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS = 32
 
     def __init__(
         self,
@@ -219,18 +244,7 @@ class LanceDatasink(_BaseLanceDatasink):
         self.min_rows_per_file = min_rows_per_file
         self.max_rows_per_file = max_rows_per_file
         self.data_storage_version = data_storage_version
-        # if mode is append, read_version is read from existing dataset.
         self.read_version: Optional[int] = None
-
-        match = []
-        match.extend(self.WRITE_FRAGMENTS_ERRORS_TO_RETRY)
-        match.extend(DataContext.get_current().retried_io_errors)
-        self._retry_params = {
-            "description": "write lance fragments",
-            "match": match,
-            "max_attempts": self.WRITE_FRAGMENTS_MAX_ATTEMPTS,
-            "max_backoff_s": self.WRITE_FRAGMENTS_RETRY_MAX_BACKOFF_SECONDS,
-        }
 
     @property
     def min_rows_per_write(self) -> int:
@@ -251,42 +265,8 @@ class LanceDatasink(_BaseLanceDatasink):
             max_rows_per_file=self.max_rows_per_file,
             data_storage_version=self.data_storage_version,
             storage_options=self.storage_options,
-            retry_params=self._retry_params,
         )
         return [
             (pickle.dumps(fragment), pickle.dumps(schema))
             for fragment, schema in fragments_and_schema
         ]
-
-
-class LanceFragmentCommitter(_BaseLanceDatasink):
-    """Lance Committer as Ray Datasink.
-
-    This is used with `LanceFragmentWriter` to write large-than-memory data to
-    lance file.
-    """
-
-    @property
-    def num_rows_per_write(self) -> int:
-        return 1
-
-    def get_name(self) -> str:
-        return f"LanceCommitter({self.mode})"
-
-    def write(
-        self,
-        blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
-        _ctx: Any,
-    ):
-        """Passthrough the fragments to commit phase"""
-        v = []
-        for block in blocks:
-            # If block is empty, skip to get "fragment" and "schema" filed
-            if len(block) == 0:
-                continue
-
-            for fragment, schema in zip(
-                block["fragment"].to_pylist(), block["schema"].to_pylist(), strict=False
-            ):
-                v.append((fragment, schema))
-        return v
