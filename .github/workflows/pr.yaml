@@ -45,7 +45,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
       - name: Install dev dependencies
         run: uv sync --extra dev
-      - name: Install pandas for tests
-        run: pip install pandas     
+      - name: Install dependencies from requirements.txt
+        run: pip install -r requirements.txt
       - name: Run tests
         run: uv run pytest -v
