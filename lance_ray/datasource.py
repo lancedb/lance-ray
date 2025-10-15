@@ -101,7 +101,7 @@ class LanceDatasource(Datasource):
                 ]
         return self._fragments
 
-    def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
+    def get_read_tasks(self, parallelism: int, **kwargs) -> list[ReadTask]:
         if not self.fragments:
             return []
 
