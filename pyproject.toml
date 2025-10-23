@@ -4,14 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lance-ray"
-version = "0.0.1"
-description = "Ray integration for Lance columnar format"
+version = "0.0.6"
+description = "Ray integration for Lance"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-authors = [
-    {name = "Lance Ray Team", email = "team@lance-ray.dev"},
-]
+authors = [{ name = "LanceDB Devs", email = "dev@lancedb.com" }]
 keywords = ["ray", "lance", "distributed", "columnar", "data"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -27,18 +25,30 @@ classifiers = [
 dependencies = [
     "ray[default]>=2.40.0",
     "pylance>=0.30.0",
+    "lance-namespace[dir]>=0.0.14",
     "pyarrow>=17.0.0",
-    "pandas>=2.2.0",
     "numpy>=2.0.0",
 ]
 
 [project.optional-dependencies]
+pandas = [
+    "pandas>=2.2.0",
+]
 dev = [
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=5.0.0",
     "pytest-xdist>=3.6.0",
     "ruff>=0.8.0",
+    "pandas>=2.2.0",  # Added for tests
+]
+test = [
+    "pandas>=2.2.0",  # Added as test dependency
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocs-awesome-pages-plugin>=2.9.0",
 ]
 
 [project.urls]
@@ -68,4 +78,4 @@ addopts = ["--cov=lance_ray", "--cov-report=term-missing"]
 
 [tool.coverage.run]
 source = ["lance_ray"]
-omit = ["*/tests/*", "*/__init__.py"] 
+omit = ["*/tests/*", "*/__init__.py"]

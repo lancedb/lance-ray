@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 import pyarrow as pa
 from ray.data._internal.block_accessor import BlockAccessor
 from ray.data._internal.util import _check_import
-from ray.data.block import BlockAccessor
 from ray.data.datasource.datasink import Datasink
+
 from .fragment import write_fragment
 
 if TYPE_CHECKING:
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from lance_namespace import LanceNamespace
 
     import pandas as pd
+
 
 def _write_fragment(
     stream: Iterable[Union[pa.Table, "pd.DataFrame"]],
@@ -27,12 +28,22 @@ def _write_fragment(
     data_storage_version: Optional[str] = None,
     storage_options: Optional[dict[str, Any]] = None,
 ) -> list[tuple["FragmentMetadata", pa.Schema]]:
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError:
+        pd = None
+
     from lance.fragment import DEFAULT_MAX_BYTES_PER_FILE, write_fragments
 
     if schema is None:
         first = next(iter(stream))
-        if isinstance(first, pd.DataFrame):
+
+        if isinstance(first, dict) and pd is None:
+            raise ImportError(
+                "pandas is required to handle DataFrame inputs. "
+                "Install with `pip install lance-ray[pandas]`"
+            )
+        if pd is not None and isinstance(first, pd.DataFrame):
             schema = pa.Schema.from_pandas(first).remove_metadata()
         else:
             schema = first.schema
@@ -69,7 +80,9 @@ class _BaseLanceDatasink(Datasink):
 
     def __init__(
         self,
-        uri: str,
+        uri: Optional[str] = None,
+        namespace: Optional["LanceNamespace"] = None,
+        table_id: Optional[list[str]] = None,
         *args: Any,
         schema: Optional[pa.Schema] = None,
         mode: Literal["create", "append", "overwrite"] = "create",
@@ -78,12 +91,42 @@ class _BaseLanceDatasink(Datasink):
     ):
         super().__init__(*args, **kwargs)
 
-        self.uri = uri
+        merged_storage_options = dict()
+        if storage_options:
+            merged_storage_options.update(storage_options)
+
+        if namespace is not None and table_id is not None:
+            self.table_id = table_id
+
+            if mode == "append":
+                from lance_namespace import DescribeTableRequest
+
+                describe_request = DescribeTableRequest(id=table_id)
+                describe_response = namespace.describe_table(describe_request)
+                self.uri = describe_response.location
+                if describe_response.storage_options:
+                    merged_storage_options.update(describe_response.storage_options)
+            elif mode == "overwrite":
+                from lance_namespace import DescribeTableRequest
+
+                try:
+                    describe_request = DescribeTableRequest(id=table_id)
+                    describe_response = namespace.describe_table(describe_request)
+                    self.uri = describe_response.location
+                    if describe_response.storage_options:
+                        merged_storage_options.update(describe_response.storage_options)
+                except Exception:
+                    self.uri = None
+            else:
+                self.uri = None
+        else:
+            self.table_id = None
+            self.uri = uri
+
         self.schema = schema
         self.mode = mode
-
         self.read_version: Optional[int] = None
-        self.storage_options = storage_options
+        self.storage_options = merged_storage_options
 
     @property
     def supports_distributed_writes(self) -> bool:
@@ -171,38 +214,13 @@ class _BaseLanceDatasink(Datasink):
 
 
 class LanceDatasink(_BaseLanceDatasink):
-    """Lance Ray Datasink.
-
-    Write a Ray dataset to lance.
-
-    If we expect to write larger-than-memory files,
-    we can use `LanceFragmentWriter` and `LanceCommitter`.
-
-    Args:
-        uri : the base URI of the dataset.
-        schema : pyarrow.Schema, optional.
-            The schema of the dataset.
-        mode : str, optional
-            The write mode. Default is 'append'.
-            Choices are 'append', 'create', 'overwrite'.
-        min_rows_per_file : int, optional
-            The minimum number of rows per file. Default is 1024 * 1024.
-        max_rows_per_file : int, optional
-            The maximum number of rows per file. Default is 64 * 1024 * 1024.
-        data_storage_version: optional, str, default None
-            The version of the data storage format to use. Newer versions are more
-            efficient but require newer versions of lance to read.  The default is
-            "legacy" which will use the legacy v1 version.  See the user guide
-            for more details.
-        storage_options : Dict[str, Any], optional
-            The storage options for the writer. Default is None.
-    """
-
     NAME = "Lance"
 
     def __init__(
         self,
-        uri: str,
+        uri: Optional[str] = None,
+        namespace: Optional["LanceNamespace"] = None,
+        table_id: Optional[list[str]] = None,
         *args: Any,
         schema: Optional[pa.Schema] = None,
         mode: Literal["create", "append", "overwrite"] = "create",
@@ -214,6 +232,8 @@ class LanceDatasink(_BaseLanceDatasink):
     ):
         super().__init__(
             uri,
+            namespace,
+            table_id,
             *args,
             schema=schema,
             mode=mode,
@@ -238,7 +258,7 @@ class LanceDatasink(_BaseLanceDatasink):
         blocks: Iterable[Union[pa.Table, "pd.DataFrame"]],
         ctx: Any,
     ):
-        fragments_and_schema = _write_fragment(
+        fragments_and_schema = write_fragment(
             blocks,
             self.uri,
             schema=self.schema,
