@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -714,7 +714,6 @@ dependencies = [
     { name = "lance-namespace", extra = ["dir"] },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pandas" },
     { name = "pyarrow" },
     { name = "pylance" },
     { name = "ray", extra = ["default"] },
@@ -722,6 +721,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "pandas" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -741,7 +741,7 @@ requires-dist = [
     { name = "mkdocs-awesome-pages-plugin", marker = "extra == 'docs'", specifier = ">=2.9.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.0.0" },
     { name = "numpy", specifier = ">=2.0.0" },
-    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandas", marker = "extra == 'dev'", specifier = ">=2.2.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "pylance", specifier = ">=0.30.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },

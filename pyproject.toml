@@ -27,7 +27,6 @@ dependencies = [
     "pylance>=0.30.0",
     "lance-namespace[dir]>=0.0.14",
     "pyarrow>=17.0.0",
-    "pandas>=2.2.0",
     "numpy>=2.0.0",
 ]
 
@@ -38,6 +37,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "pytest-xdist>=3.6.0",
     "ruff>=0.8.0",
+    "pandas>=2.2.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
