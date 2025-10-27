@@ -177,7 +177,7 @@ class TestDistributedCompaction:
         """Test compaction with many small fragments."""
         dataset_path = Path(temp_dir) / "test_many_fragments_compaction"
 
-        # Create 8 fragments with 5 rows each
+        # Create 1000 fragments with 5 rows each
         fragments = [
             pd.DataFrame(
                 {
@@ -185,14 +185,14 @@ class TestDistributedCompaction:
                     "value": [f"frag_{i}_row_{j}" for j in range(5)],
                 }
             )
-            for i in range(8)
+            for i in range(1000)
         ]
 
         dataset = create_dataset_with_fragments(dataset_path, fragments)
 
         # Verify initial state
-        assert len(dataset.get_fragments()) == 8, "Should start with 8 fragments"
-        assert dataset.count_rows() == 40, "Should have 40 total rows"
+        assert len(dataset.get_fragments()) == 1000, "Should start with 1000 fragments"
+        assert dataset.count_rows() == 5000, "Should have 5000 total rows"
 
         # Configure compaction to merge small fragments
         compaction_options = CompactionOptions(
@@ -208,14 +208,14 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction happened
-        assert metrics.fragments_removed == 8, "Should remove all fragments"
-        assert metrics.fragments_added == 2, (
-            "Should add 2 fragments as target_rows_per_fragment = 20"
+        assert metrics.fragments_removed == 1000, "Should remove all fragments"
+        assert metrics.fragments_added == 250, (
+            "Should add 250 fragments as target_rows_per_fragment = 20"
         )
 
         # Reload dataset and verify data integrity
         dataset = lance.dataset(str(dataset_path))
-        assert dataset.count_rows() == 40, "Should still have 40 total rows"
+        assert dataset.count_rows() == 5000, "Should still have 5000 total rows"
 
     def test_compaction_no_work_needed(self, temp_dir):
         """Test compaction when no work is needed."""
