@@ -46,4 +46,4 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
       - name: Run tests
-        run: uv run --extra dev pytest -v
+        run: uv run pytest -v
