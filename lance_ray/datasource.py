@@ -46,25 +46,10 @@ class LanceDatasource(Datasource):
         if filter is not None:
             self._scanner_options["filter"] = filter
 
-        # Handle namespace-based table loading
-        if namespace is not None and table_id is not None:
-            # Import here to avoid circular dependency
-            from lance_namespace import DescribeTableRequest
-
-            # Get the table URI from the namespace
-            describe_request = DescribeTableRequest(id=table_id)
-            describe_response = namespace.describe_table(describe_request)
-            self._uri = describe_response.location
-
-            merged_storage_options = dict()
-            if storage_options:
-                merged_storage_options.update(storage_options)
-            if describe_response.storage_options:
-                merged_storage_options.update(describe_response.storage_options)
-            self._storage_options = merged_storage_options
-        else:
-            self._uri = uri
-            self._storage_options = storage_options
+        self._uri = uri
+        self._namespace = namespace
+        self._table_id = table_id
+        self._storage_options = storage_options
 
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
@@ -87,6 +72,8 @@ class LanceDatasource(Datasource):
 
             dataset_options = self._dataset_options.copy()
             dataset_options["uri"] = self._uri
+            dataset_options["namespace"] = self._namespace
+            dataset_options["table_id"] = self._table_id
             dataset_options["storage_options"] = self._storage_options
             self._lance_ds = lance.dataset(**dataset_options)
         return self._lance_ds
