@@ -273,6 +273,10 @@ def add_columns(
     """
     _validate_uri_or_namespace_args(uri, namespace, table_id)
 
+    merged_storage_options = dict()
+    if storage_options:
+        merged_storage_options.update(storage_options)
+
     # Resolve URI from namespace if provided
     if namespace is not None and table_id is not None:
         from lance_namespace import DescribeTableRequest
@@ -280,9 +284,11 @@ def add_columns(
         describe_request = DescribeTableRequest(id=table_id)
         describe_response = namespace.describe_table(describe_request)
         uri = describe_response.location
+        if describe_response.storage_options:
+            merged_storage_options.update(describe_response.storage_options)
 
     lance_ds = LanceDataset(
-        uri=uri, storage_options=storage_options, version=read_version
+        uri=uri, storage_options=merged_storage_options, version=read_version
     )
     fragment_ids = [f.metadata.id for f in lance_ds.get_fragments()]
     pool = Pool(processes=concurrency, ray_remote_args=ray_remote_args)
@@ -311,7 +317,7 @@ def add_columns(
         uri,
         op,
         read_version=lance_ds.version,
-        storage_options=storage_options,
+        storage_options=merged_storage_options,
     )
     pool.close()
 
