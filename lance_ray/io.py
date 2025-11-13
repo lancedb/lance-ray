@@ -273,6 +273,8 @@ def add_columns(
     """
     _validate_uri_or_namespace_args(uri, namespace, table_id)
 
+    storage_options = storage_options or {}
+
     # Resolve URI from namespace if provided
     if namespace is not None and table_id is not None:
         from lance_namespace import DescribeTableRequest
@@ -280,6 +282,8 @@ def add_columns(
         describe_request = DescribeTableRequest(id=table_id)
         describe_response = namespace.describe_table(describe_request)
         uri = describe_response.location
+        if describe_response.storage_options:
+            storage_options.update(describe_response.storage_options)
 
     lance_ds = LanceDataset(
         uri=uri, storage_options=storage_options, version=read_version
