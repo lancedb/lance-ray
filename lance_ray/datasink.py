@@ -216,10 +216,14 @@ class LanceDatasink(_BaseLanceDatasink):
             **kwargs,
         )
 
-        if min_rows_per_file <= 0:
-            raise ValueError("min_rows_per_file must be positive")
-        if max_rows_per_file <= 0:
-            raise ValueError("max_rows_per_file must be positive")
+        if min_rows_per_file is None or min_rows_per_file <= 0:
+            raise ValueError("min_rows_per_file must not be None and must be positive")
+        if max_rows_per_file is None or max_rows_per_file <= 0:
+            raise ValueError("max_rows_per_file must not be None and must be positive")
+        if min_rows_per_file > max_rows_per_file:
+            raise ValueError(
+                f"min_rows_per_file: {min_rows_per_file} must be less than max_rows_per_file: {max_rows_per_file}"
+            )
         self.min_rows_per_file = min_rows_per_file
         self.max_rows_per_file = max_rows_per_file
         self.data_storage_version = data_storage_version
@@ -238,7 +242,7 @@ class LanceDatasink(_BaseLanceDatasink):
 
     @property
     def min_rows_per_write(self) -> int:
-        return min(self.min_rows_per_file, self.max_rows_per_file)
+        return self.min_rows_per_file
 
     def get_name(self) -> str:
         return self.NAME
