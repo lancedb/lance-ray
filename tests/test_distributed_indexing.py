@@ -95,7 +95,7 @@ def multi_fragment_lance_dataset(text_dataset, temp_dir):
     """Create a Lance dataset with multiple fragments for testing."""
     path = Path(temp_dir) / "multi_fragment_text.lance"
     # Create dataset with multiple fragments (2 rows per fragment)
-    lr.write_lance(text_dataset, str(path), max_rows_per_file=2)
+    lr.write_lance(text_dataset, str(path), min_rows_per_file=2, max_rows_per_file=2)
     return str(path)
 
 
@@ -117,7 +117,7 @@ def generate_multi_fragment_dataset(tmp_path, num_fragments=4, rows_per_fragment
     dataset = ray.data.from_pandas(df)
 
     path = Path(tmp_path) / "large_multi_fragment.lance"
-    lr.write_lance(dataset, str(path), max_rows_per_file=rows_per_fragment)
+    lr.write_lance(dataset, str(path), min_rows_per_file=rows_per_fragment, max_rows_per_file=rows_per_fragment)
 
     return lance.dataset(str(path))
 
@@ -315,7 +315,7 @@ class TestDistributedIndexing:
         )
         dataset = ray.data.from_pandas(data)
         path = Path(temp_dir) / "non_string_test.lance"
-        lr.write_lance(dataset, str(path), max_rows_per_file=2)
+        lr.write_lance(dataset, str(path), min_rows_per_file=2, max_rows_per_file=2)
 
         with pytest.raises(TypeError, match="must be string type"):
             lr.create_scalar_index(
@@ -503,7 +503,7 @@ class TestDistributedIndexing:
         )
         dataset = ray.data.from_pandas(data)
         path = Path(temp_dir) / "small_dataset.lance"
-        lr.write_lance(dataset, str(path), max_rows_per_file=2)
+        lr.write_lance(dataset, str(path), min_rows_per_file=2, max_rows_per_file=2)
 
         # Request more workers than fragments
         updated_dataset = lr.create_scalar_index(
