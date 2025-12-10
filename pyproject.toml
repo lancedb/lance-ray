@@ -24,7 +24,7 @@ classifiers = [
 
 dependencies = [
     "ray[data]>=2.40.0",
-    "pylance>=0.39.0",
+    "pylance==1.0.0rc3",
     "lance-namespace[dir]>=0.0.20",
     "pyarrow>=17.0.0",
     "numpy>=2.0.0",
@@ -72,3 +72,6 @@ addopts = ["--cov=lance_ray", "--cov-report=term-missing"]
 [tool.coverage.run]
 source = ["lance_ray"]
 omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.uv]
+required-environments = ["sys_platform == 'linux'"]
