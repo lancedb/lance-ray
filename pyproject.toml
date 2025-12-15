@@ -27,7 +27,7 @@ dependencies = [
     "pylance>=0.39.0",
     "lance-namespace[dir]>=0.0.20",
     "pyarrow>=17.0.0",
-    "numpy>=2.0.0",
+    "more_itertools>=2.6.0; python_version<'3.12'",
 ]
 
 [project.optional-dependencies]

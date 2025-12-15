@@ -2,13 +2,14 @@ import inspect
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Optional
 
-import numpy as np
 import pyarrow as pa
 from ray.data._internal.util import _check_import, call_with_retry
 from ray.data.block import BlockMetadata
 from ray.data.context import DataContext
 from ray.data.datasource import Datasource
 from ray.data.datasource.datasource import ReadTask
+
+from .utils import array_split
 
 if TYPE_CHECKING:
     import lance
@@ -94,7 +95,7 @@ class LanceDatasource(Datasource):
 
         read_tasks = []
 
-        for fragments in np.array_split(self.fragments, parallelism):
+        for fragments in array_split(self.fragments, parallelism):
             if len(fragments) == 0:
                 continue
 
