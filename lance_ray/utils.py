@@ -1,11 +1,11 @@
 import sys
-from typing import TypeVar, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import TypeVar
 
+T = TypeVar("T")
 
 if sys.version_info >= (3, 12):
     from itertools import batched
-
-    T = TypeVar("T")
 
     def array_split(iterable: Iterable[T], n: int) -> list[Sequence[T]]:
         """Split iterable into n chunks."""
