@@ -36,7 +36,7 @@ def create_scalar_index(
     replace: bool = True,
     train: bool = True,
     fragment_ids: Optional[list[int]] = None,
-    fragment_uuid: Optional[str] = None,
+    index_uuid: Optional[str] = None,
     num_workers: int = 4,
     storage_options: Optional[dict[str, str]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
@@ -56,7 +56,7 @@ def create_scalar_index(
 | `replace` | `bool`, optional | Whether to replace existing index with the same name, default is `True` |
 | `train` | `bool`, optional | Whether to train the index, default is `True` |
 | `fragment_ids` | `list[int]`, optional | Optional list of fragment IDs to build index on |
-| `fragment_uuid` | `str`, optional | Optional fragment UUID for distributed indexing |
+| `index_uuid` | `str`, optional | Optional fragment UUID for distributed indexing |
 | `num_workers` | `int`, optional | Number of Ray worker nodes to use, default is 4 |
 | `storage_options` | `Dict[str, str]`, optional | Storage options for the dataset |
 | `ray_remote_args` | `Dict[str, Any]`, optional | Ray task options (e.g., `num_cpus`, `resources`) |

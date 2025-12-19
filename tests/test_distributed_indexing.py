@@ -569,10 +569,10 @@ class TestDistributedIndexing:
         print(f"Search for '{search_word}' returned {results.num_rows} results")
         assert results.num_rows > 0, f"No results found for search term '{search_word}'"
 
-    def test_distributed_index_with_fragment_uuid(self, temp_dir):
+    def test_distributed_index_with_index_uuid(self, temp_dir):
         """
         Test distributed index building with explicit fragment UUID handling.
-        This tests the new fragment_uuid parameter from PR #4578.
+        This tests the new index_uuid parameter from PR #4578.
         """
         # Generate test dataset
         ds = generate_multi_fragment_dataset(
@@ -584,7 +584,7 @@ class TestDistributedIndexing:
             dataset=ds,
             column="text",
             index_type="INVERTED",
-            name="fragment_uuid_test_idx",
+            name="index_uuid_test_idx",
             num_workers=2,
         )
 
@@ -595,11 +595,11 @@ class TestDistributedIndexing:
         # Find our index
         our_index = None
         for idx in indices:
-            if idx["name"] == "fragment_uuid_test_idx":
+            if idx["name"] == "index_uuid_test_idx":
                 our_index = idx
                 break
 
-        assert our_index is not None, "Index 'fragment_uuid_test_idx' not found"
+        assert our_index is not None, "Index 'index_uuid_test_idx' not found"
         assert our_index["type"] == "Inverted", (
             f"Expected Inverted index, got {our_index['type']}"
         )

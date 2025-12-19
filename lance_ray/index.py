@@ -105,7 +105,7 @@ def _handle_fragment_index(
     column: str,
     index_type: str,
     name: str,
-    fragment_uuid: str,
+    index_uuid: str,
     replace: bool,
     train: bool,
     storage_options: Optional[dict[str, str]] = None,
@@ -162,7 +162,7 @@ def _handle_fragment_index(
                 name=name,
                 replace=replace,
                 train=train,
-                fragment_uuid=fragment_uuid,
+                index_uuid=index_uuid,
                 fragment_ids=fragment_ids,
                 **kwargs,
             )
@@ -178,7 +178,7 @@ def _handle_fragment_index(
                 "status": "success",
                 "fragment_ids": fragment_ids,
                 "fields": [field_id],
-                "uuid": fragment_uuid,
+                "uuid": index_uuid,
             }
 
         except Exception as e:
@@ -219,7 +219,7 @@ def create_scalar_index(
     replace: bool = True,
     train: bool = True,
     fragment_ids: Optional[list[int]] = None,
-    fragment_uuid: Optional[str] = None,
+    index_uuid: Optional[str] = None,
     num_workers: int = 4,
     storage_options: Optional[dict[str, str]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
@@ -240,7 +240,7 @@ def create_scalar_index(
         replace: Whether to replace existing index with the same name (default: True)
         train: Whether to train the index (default: True)
         fragment_ids: Optional list of fragment IDs to build index on
-        fragment_uuid: Optional fragment UUID for distributed indexing
+        index_uuid: Optional fragment UUID for distributed indexing
         num_workers: Number of Ray workers to use (keyword-only)
         storage_options: Storage options for the dataset (keyword-only)
         ray_remote_args: Options for Ray tasks (e.g., num_cpus, resources) (keyword-only)
@@ -417,7 +417,7 @@ def create_scalar_index(
         column=column,
         index_type=index_type,
         name=name,
-        fragment_uuid=index_id,
+        index_uuid=index_id,
         replace=replace,
         train=train,
         storage_options=storage_options,
