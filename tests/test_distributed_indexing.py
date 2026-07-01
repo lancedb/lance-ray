@@ -1185,6 +1185,117 @@ class TestDistributedBTreeIndexing:
         )
 
 
+def check_zonemap_version_compatibility():
+    """Check if lance version supports distributed ZONEMAP indexing (>= 9.0.0b1)."""
+    try:
+        lance_version = version.parse(lance.__version__)
+        zonemap_min_version = version.parse("9.0.0b1")
+        return lance_version >= zonemap_min_version
+    except (AttributeError, Exception):
+        return False
+
+
+@pytest.mark.skipif(
+    not check_zonemap_version_compatibility(),
+    reason="Distributed ZONEMAP indexing requires pylance >= 9.0.0b1. Current version: {}".format(
+        getattr(lance, "__version__", "unknown")
+    ),
+)
+class TestDistributedZoneMapIndexing:
+    """Distributed ZONEMAP indexing tests."""
+
+    def test_distributed_zonemap_index_basic(self, temp_dir):
+        """Build a distributed ZONEMAP index on an int column and verify index type."""
+        ds = generate_multi_fragment_dataset(
+            temp_dir, num_fragments=3, rows_per_fragment=500
+        )
+
+        updated_dataset = lr.create_scalar_index(
+            uri=ds.uri,
+            column="id",
+            index_type="ZONEMAP",
+            name="zonemap_id_idx",
+            replace=False,
+            num_workers=3,
+        )
+
+        indices = updated_dataset.describe_indices()
+        assert len(indices) > 0, "No indices found after distributed ZONEMAP build"
+
+        our_index = next(
+            (idx for idx in indices if idx.name == "zonemap_id_idx"), None
+        )
+        assert our_index is not None, "ZONEMAP index not found by name"
+        assert our_index.index_type == "ZoneMap", (
+            f"Expected ZoneMap index, got {our_index.index_type}"
+        )
+
+    def test_zonemap_query_results_match_baseline(self, temp_dir):
+        """ZONEMAP-indexed range queries must return the same rows as a non-indexed scan."""
+        with_index = generate_multi_fragment_dataset(
+            Path(temp_dir) / "with_zonemap",
+            num_fragments=3,
+            rows_per_fragment=500,
+        )
+        without_index = generate_multi_fragment_dataset(
+            Path(temp_dir) / "without_zonemap",
+            num_fragments=3,
+            rows_per_fragment=500,
+        )
+
+        updated_dataset = lr.create_scalar_index(
+            uri=with_index.uri,
+            column="id",
+            index_type="ZONEMAP",
+            name="zonemap_range_idx",
+            replace=False,
+            num_workers=3,
+        )
+
+        for filter_expr in [
+            "id = 250",
+            "id >= 200 AND id < 800",
+            "id < 500",
+            "id > 999",
+        ]:
+            indexed = updated_dataset.scanner(
+                filter=filter_expr, columns=["id"]
+            ).to_table()
+            baseline = without_index.scanner(
+                filter=filter_expr, columns=["id"]
+            ).to_table()
+            assert indexed.num_rows == baseline.num_rows, (
+                f"Row count mismatch for '{filter_expr}': "
+                f"indexed={indexed.num_rows}, baseline={baseline.num_rows}"
+            )
+            if indexed.num_rows > 0:
+                assert sorted(indexed.column("id").to_pylist()) == sorted(
+                    baseline.column("id").to_pylist()
+                ), f"Result mismatch for '{filter_expr}'"
+
+    def test_distributed_zonemap_index_string_column(self, temp_dir):
+        """Build a distributed ZONEMAP index on a string column."""
+        ds = generate_multi_fragment_dataset(
+            temp_dir, num_fragments=3, rows_per_fragment=200
+        )
+
+        updated_dataset = lr.create_scalar_index(
+            uri=ds.uri,
+            column="text",
+            index_type="ZONEMAP",
+            name="zonemap_text_idx",
+            replace=False,
+            num_workers=3,
+        )
+
+        indices = updated_dataset.describe_indices()
+        our_index = next(
+            (idx for idx in indices if idx.name == "zonemap_text_idx"), None
+        )
+        assert our_index is not None, "ZONEMAP string index not found by name"
+        assert our_index.index_type == "ZoneMap"
+
+
 class TestDistributedBitmapIndexing:
     """Distributed BITMAP indexing tests."""
 
