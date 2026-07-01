@@ -532,13 +532,6 @@ def create_scalar_index(
                 f"not '{index_type}'"
             )
 
-        if index_type == "ZONEMAP":
-            zonemap_min_version = version.parse("9.0.0b1")
-            if version.parse(lance.__version__) < zonemap_min_version:
-                raise RuntimeError(
-                    f"Distributed ZONEMAP indexing requires pylance >= 9.0.0b1, "
-                    f"but found {lance.__version__}. Please upgrade pylance."
-                )
     elif not isinstance(index_type, IndexConfig):
         raise ValueError(
             "index_type must be a string literal or IndexConfig object, got "

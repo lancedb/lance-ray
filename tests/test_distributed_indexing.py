@@ -1185,22 +1185,6 @@ class TestDistributedBTreeIndexing:
         )
 
 
-def check_zonemap_version_compatibility():
-    """Check if lance version supports distributed ZONEMAP indexing (>= 9.0.0b1)."""
-    try:
-        lance_version = version.parse(lance.__version__)
-        zonemap_min_version = version.parse("9.0.0b1")
-        return lance_version >= zonemap_min_version
-    except (AttributeError, Exception):
-        return False
-
-
-@pytest.mark.skipif(
-    not check_zonemap_version_compatibility(),
-    reason="Distributed ZONEMAP indexing requires pylance >= 9.0.0b1. Current version: {}".format(
-        getattr(lance, "__version__", "unknown")
-    ),
-)
 class TestDistributedZoneMapIndexing:
     """Distributed ZONEMAP indexing tests."""
 
