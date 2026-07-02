@@ -154,6 +154,7 @@ def write_lance(
     min_rows_per_file: int = 1024 * 1024,
     max_rows_per_file: int = 64 * 1024 * 1024,
     data_storage_version: Optional[str] = None,
+    enable_stable_row_ids: bool = False,
     storage_options: Optional[dict[str, Any]] = None,
     base_store_params: Optional[dict[str, dict[str, Any]]] = None,
     initial_bases: Optional[list[Any]] = None,
@@ -209,6 +210,8 @@ def write_lance(
             efficient but require newer versions of lance to read.  The default is
             "legacy" which will use the legacy v1 version.  See the user guide
             for more details.
+        enable_stable_row_ids: Enable stable row IDs for the dataset and all
+            fragments written by this operation. Default is False.
         storage_options: The storage options for the writer. Default is None.
         base_store_params: Runtime-only storage options keyed by registered
             base path URI. Used for BlobV2 references that live outside the
@@ -256,6 +259,7 @@ def write_lance(
             min_rows_per_file=min_rows_per_file,
             max_rows_per_file=max_rows_per_file,
             data_storage_version=data_storage_version,
+            enable_stable_row_ids=enable_stable_row_ids,
             storage_options=storage_options,
             base_store_params=base_store_params,
             initial_bases=initial_bases,
@@ -348,6 +352,7 @@ def write_lance(
             max_rows_per_file=max_rows_per_file,
             max_rows_per_group=min_rows_per_file,  # keep naming aligned with v1 semantics
             data_storage_version=data_storage_version,
+            enable_stable_row_ids=enable_stable_row_ids,
             storage_options=storage_options,
             base_store_params=base_store_params,
             initial_bases=fragment_initial_bases,
@@ -386,6 +391,7 @@ def write_lance(
                     op,
                     read_version=None,
                     storage_options=storage_options,
+                    enable_stable_row_ids=enable_stable_row_ids,
                     **base_store_params_kwargs,
                 )
                 first_commit_done = True
@@ -406,6 +412,7 @@ def write_lance(
                     op,
                     read_version=dest_version,
                     storage_options=storage_options,
+                    enable_stable_row_ids=enable_stable_row_ids,
                     **base_store_params_kwargs,
                 )
                 first_commit_done = True
@@ -434,6 +441,7 @@ def write_lance(
                     op,
                     read_version=None,
                     storage_options=storage_options,
+                    enable_stable_row_ids=enable_stable_row_ids,
                     **base_store_params_kwargs,
                 )
                 first_commit_done = True
@@ -445,6 +453,7 @@ def write_lance(
                 op,
                 read_version=dest_version,
                 storage_options=storage_options,
+                enable_stable_row_ids=enable_stable_row_ids,
                 **base_store_params_kwargs,
             )
             try:

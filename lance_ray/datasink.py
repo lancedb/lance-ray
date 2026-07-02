@@ -59,6 +59,7 @@ class _BaseLanceDatasink(Datasink):
         *args: Any,
         schema: Optional[pa.Schema] = None,
         mode: Literal["create", "append", "overwrite"] = "create",
+        enable_stable_row_ids: bool = False,
         storage_options: Optional[dict[str, Any]] = None,
         base_store_params: Optional[dict[str, dict[str, Any]]] = None,
         initial_bases: Optional[list[Any]] = None,
@@ -122,6 +123,7 @@ class _BaseLanceDatasink(Datasink):
 
         self.schema = schema
         self.mode = mode
+        self.enable_stable_row_ids = enable_stable_row_ids
         self.read_version: Optional[int] = None
         self.storage_options = merged_storage_options
         self.base_store_params = base_store_params
@@ -218,6 +220,7 @@ class _BaseLanceDatasink(Datasink):
                 op,
                 read_version=self.read_version,
                 storage_options=self.storage_options,
+                enable_stable_row_ids=self.enable_stable_row_ids,
                 **self.namespace_kwargs,
                 **base_store_params_kwargs,
             )
@@ -250,6 +253,8 @@ class LanceDatasink(_BaseLanceDatasink):
             efficient but require newer versions of lance to read.  The default is
             "legacy" which will use the legacy v1 version.  See the user guide
             for more details.
+        enable_stable_row_ids : bool, default False
+            Enable stable row IDs for the dataset and all written fragments.
         storage_options : Dict[str, Any], optional
             The storage options for the writer. Default is None.
         base_store_params : dict, optional
@@ -292,6 +297,7 @@ class LanceDatasink(_BaseLanceDatasink):
         min_rows_per_file: int = 1024 * 1024,
         max_rows_per_file: int = 64 * 1024 * 1024,
         data_storage_version: Optional[str] = None,
+        enable_stable_row_ids: bool = False,
         storage_options: Optional[dict[str, Any]] = None,
         base_store_params: Optional[dict[str, dict[str, Any]]] = None,
         initial_bases: Optional[list[Any]] = None,
@@ -316,6 +322,7 @@ class LanceDatasink(_BaseLanceDatasink):
             *args,
             schema=schema,
             mode=mode,
+            enable_stable_row_ids=enable_stable_row_ids,
             storage_options=storage_options,
             base_store_params=base_store_params,
             initial_bases=initial_bases,
@@ -369,6 +376,7 @@ class LanceDatasink(_BaseLanceDatasink):
             schema=self.schema,
             max_rows_per_file=self.max_rows_per_file,
             data_storage_version=self.data_storage_version,
+            enable_stable_row_ids=self.enable_stable_row_ids,
             storage_options=self.storage_options,
             base_store_params=self.base_store_params,
             initial_bases=self.initial_bases if self.mode == "create" else None,

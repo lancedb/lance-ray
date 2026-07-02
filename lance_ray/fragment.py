@@ -44,6 +44,7 @@ def write_fragment(
     max_bytes_per_file: Optional[int] = None,
     max_rows_per_group: int = 1024,  # Only useful for v1 writer.
     data_storage_version: Optional[str] = None,
+    enable_stable_row_ids: bool = False,
     storage_options: Optional[dict[str, Any]] = None,
     base_store_params: Optional[dict[str, dict[str, Any]]] = None,
     initial_bases: Optional[list[Any]] = None,
@@ -126,6 +127,7 @@ def write_fragment(
             max_rows_per_group=max_rows_per_group,
             max_bytes_per_file=max_bytes_per_file,
             data_storage_version=data_storage_version,
+            enable_stable_row_ids=enable_stable_row_ids,
             storage_options=storage_options,
             **write_kwargs,
             **initial_bases_kwargs,
@@ -280,6 +282,8 @@ class LanceFragmentWriter:
         The version of the data storage format to use. Newer versions are more
         efficient but require newer versions of lance to read.  The default
         (None) will use the 2.0 version.  See the user guide for more details.
+    enable_stable_row_ids : bool, default False
+        Enable stable row IDs for fragments written into a stable-row-ID dataset.
     use_legacy_format : optional, bool, default None
         Deprecated method for setting the data storage version. Use the
         `data_storage_version` parameter instead.
@@ -325,6 +329,7 @@ class LanceFragmentWriter:
         max_bytes_per_file: Optional[int] = None,
         max_rows_per_group: Optional[int] = None,  # Only useful for v1 writer.
         data_storage_version: Optional[str] = None,
+        enable_stable_row_ids: bool = False,
         use_legacy_format: Optional[bool] = False,
         storage_options: Optional[dict[str, Any]] = None,
         base_store_params: Optional[dict[str, dict[str, Any]]] = None,
@@ -363,6 +368,7 @@ class LanceFragmentWriter:
         self.max_rows_per_file = max_rows_per_file
         self.max_bytes_per_file = max_bytes_per_file
         self.data_storage_version = data_storage_version
+        self.enable_stable_row_ids = enable_stable_row_ids
         self.storage_options = storage_options
         self.base_store_params = base_store_params
         self.initial_bases = normalize_initial_bases(initial_bases)
@@ -406,6 +412,7 @@ class LanceFragmentWriter:
             max_rows_per_group=self.max_rows_per_group,
             max_bytes_per_file=self.max_bytes_per_file,
             data_storage_version=self.data_storage_version,
+            enable_stable_row_ids=self.enable_stable_row_ids,
             storage_options=self.storage_options,
             base_store_params=self.base_store_params,
             initial_bases=self.initial_bases,

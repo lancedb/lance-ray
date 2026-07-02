@@ -209,6 +209,52 @@ class TestLanceFragmentWriterCommitter:
         assert len(ds.get_fragments()) == 2
 
     @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+    def test_fragment_writer_committer_enables_stable_row_ids(self, tmp_path: Path):
+        schema = pa.schema([pa.field("id", pa.int64())])
+
+        (
+            ray.data.range(10)
+            .map_batches(
+                LanceFragmentWriter(
+                    tmp_path,
+                    schema=schema,
+                    enable_stable_row_ids=True,
+                ),
+                batch_size=5,
+            )
+            .write_datasink(
+                LanceFragmentCommitter(
+                    tmp_path,
+                    enable_stable_row_ids=True,
+                )
+            )
+        )
+
+        dataset = lance.dataset(tmp_path)
+        assert dataset.has_stable_row_ids
+        before_table = dataset.to_table(columns=["id"], with_row_id=True)
+        before = dict(
+            zip(
+                before_table["id"].to_pylist(),
+                before_table["_rowid"].to_pylist(),
+                strict=True,
+            )
+        )
+
+        dataset.optimize.compact_files(target_rows_per_fragment=10)
+        compacted = lance.dataset(tmp_path)
+        after_table = compacted.to_table(columns=["id"], with_row_id=True)
+        after = dict(
+            zip(
+                after_table["id"].to_pylist(),
+                after_table["_rowid"].to_pylist(),
+                strict=True,
+            )
+        )
+
+        assert after == before
+
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_fragment_writer_with_transform(self, tmp_path: Path):
         """Test fragment writer with custom transform function."""
         schema = pa.schema(

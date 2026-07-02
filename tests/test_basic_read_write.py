@@ -61,6 +61,17 @@ class TestWriteLance:
         assert path.exists()
         assert path.is_dir()
 
+    def test_write_lance_with_stable_row_ids(self, sample_dataset, temp_dir):
+        path = Path(temp_dir) / "stable_row_ids.lance"
+
+        lr.write_lance(
+            sample_dataset,
+            str(path),
+            enable_stable_row_ids=True,
+        )
+
+        assert lance.dataset(str(path)).has_stable_row_ids
+
     def test_write_lance_with_schema(self, temp_dir):
         """Test write with explicit schema."""
         path = Path(temp_dir) / "schema_write.lance"
