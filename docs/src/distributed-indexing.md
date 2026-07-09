@@ -110,6 +110,7 @@ def create_index(
     sample_rate: int = 256,
     ivf_centroids: Optional["pyarrow.Array"] = None,
     pq_codebook: Optional["pyarrow.Array"] = None,
+    rabitq_model: Optional[str] = None,
     **kwargs: Any,
 ) -> "lance.LanceDataset":
 ```
@@ -136,7 +137,13 @@ def create_index(
 | `sample_rate` | `int`, optional | Number of rows sampled per IVF partition and PQ centroid, default is 256 |
 | `ivf_centroids` | `pyarrow.Array`, optional | Pre-computed IVF centroids (advanced) |
 | `pq_codebook` | `pyarrow.Array`, optional | Pre-computed PQ codebook for PQ-based indices (advanced) |
+| `rabitq_model` | `str`, optional | Pre-built RaBitQ model for IVF_RQ. If omitted for IVF_RQ, Lance-Ray builds one shared model on the driver |
 | `**kwargs` | `Any` | Additional arguments to pass through to Lance index creation |
+
+For `IVF_RQ`, Lance-Ray builds one shared RaBitQ rotation model on the driver
+when `rabitq_model` is not provided, then passes that same model to every
+fragment worker. To pin or reuse a model yourself, pass the JSON string returned
+by `lance.lance.indices.build_rq_model(...)` as `rabitq_model`.
 
 #### Return Value
 
@@ -324,6 +331,21 @@ updated_dataset = lr.create_index(
     name="idx_ivf_rq",
     num_workers=4,
     num_partitions=256,
+)
+
+# Or provide a pre-built shared RaBitQ model explicitly.
+from lance.lance import indices
+
+rabitq_model = indices.build_rq_model(dimension=128, num_bits=1)
+updated_dataset = lr.create_index(
+    uri="path/to/dataset.lance",
+    column="vector",
+    index_type="IVF_RQ",
+    name="idx_ivf_rq",
+    num_workers=4,
+    num_partitions=256,
+    num_bits=1,
+    rabitq_model=rabitq_model,
 )
 
 # Build a distributed IVF_FLAT index
