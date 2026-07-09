@@ -138,12 +138,19 @@ def create_index(
 | `ivf_centroids` | `pyarrow.Array`, optional | Pre-computed IVF centroids (advanced) |
 | `pq_codebook` | `pyarrow.Array`, optional | Pre-computed PQ codebook for PQ-based indices (advanced) |
 | `rabitq_model` | `str`, optional | Pre-built RaBitQ model for IVF_RQ. If omitted for IVF_RQ, Lance-Ray builds one shared model on the driver |
+| `num_bits` | `int`, optional | RaBitQ bits per vector dimension for IVF_RQ, default is 1. Passed through to Lance for validation |
 | `**kwargs` | `Any` | Additional arguments to pass through to Lance index creation |
 
 For `IVF_RQ`, Lance-Ray builds one shared RaBitQ rotation model on the driver
 when `rabitq_model` is not provided, then passes that same model to every
 fragment worker. To pin or reuse a model yourself, pass the JSON string returned
 by `lance.lance.indices.build_rq_model(...)` as `rabitq_model`.
+
+The RaBitQ model dimension is the vector column width and must be divisible by
+8. `num_bits` controls how many RaBitQ code bits are used per vector dimension:
+larger values can increase quantized-code fidelity at the cost of more index
+storage and memory. The default is 1, matching Lance's IVF_RQ default, and
+supported values are validated by Lance.
 
 #### Return Value
 

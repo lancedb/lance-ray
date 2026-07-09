@@ -192,7 +192,13 @@ def _put_vector_index_artifacts_in_object_store(
 
 
 def _build_rabitq_model(*, dimension: int, num_bits: int = 1) -> str:
-    """Build one shared RaBitQ rotation model for distributed IVF_RQ shards."""
+    """Build one shared RaBitQ rotation model for distributed IVF_RQ shards.
+
+    ``dimension`` is the vector width and must satisfy Lance's IVF_RQ
+    requirement that it is divisible by 8. ``num_bits`` controls the number of
+    RaBitQ code bits per vector dimension and defaults to Lance's IVF_RQ default
+    of 1; supported values are validated by ``lance.lance.indices.build_rq_model``.
+    """
     from lance.lance import indices
 
     return indices.build_rq_model(dimension=dimension, num_bits=num_bits)
@@ -1202,6 +1208,9 @@ def create_index(
         pq_codebook: Pre-computed PQ codebook (optional)
         rabitq_model: Pre-built RaBitQ model for IVF_RQ. If omitted, Lance-Ray
             builds one shared model on the driver and sends it to every worker.
+            The model dimension is the vector column width and must be divisible
+            by 8. The ``num_bits`` keyword controls RaBitQ bits per vector
+            dimension and defaults to 1.
         **kwargs: Additional arguments to pass to the fragment index build entrypoint.
 
     Returns:
