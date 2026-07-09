@@ -751,6 +751,7 @@ def create_scalar_index(
 _VECTOR_INDEX_TYPES = {
     "IVF_FLAT",
     "IVF_PQ",
+    "IVF_RQ",
     "IVF_SQ",
     "IVF_HNSW_FLAT",
     "IVF_HNSW_PQ",
@@ -1177,7 +1178,8 @@ def create_index(
     Args:
         uri: Lance dataset or URI to build index on
         column: Column name to index
-        index_type: Type of index to build (e.g., "IVF_PQ", "IVF_HNSW_PQ")
+        index_type: Type of index to build (e.g., "IVF_PQ", "IVF_RQ",
+            "IVF_HNSW_PQ")
         name: Name of the index (generated if None)
         replace: Whether to replace existing index with the same name (default: True)
         num_workers: Number of Ray workers to use (keyword-only)

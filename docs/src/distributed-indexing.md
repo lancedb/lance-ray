@@ -80,8 +80,12 @@ The function returns an updated Lance dataset with the newly created index.
 #### Supported Index Types
 The following vector index types are supported for distributed building:
 - `IVF_FLAT`
-- `IVF_SQ`
 - `IVF_PQ`
+- `IVF_RQ`
+- `IVF_SQ`
+- `IVF_HNSW_FLAT`
+- `IVF_HNSW_PQ`
+- `IVF_HNSW_SQ`
 
 #### `create_index`
 
@@ -116,7 +120,7 @@ def create_index(
 |-----------|------|-------------|
 | `uri` | `str` or `lance.LanceDataset`, optional | Lance dataset object, or its URI. Either `uri` OR (`namespace_impl` + `table_id`) must be provided when using URI mode. If you pass a `lance.LanceDataset` object, namespace parameters are ignored. |
 | `column` | `str` | Vector column name to index |
-| `index_type` | `str` | Vector index type (e.g., `"IVF_PQ"`, `"IVF_SQ"`, `"IVF_FLAT"`) |
+| `index_type` | `str` | Vector index type (e.g., `"IVF_PQ"`, `"IVF_RQ"`, `"IVF_SQ"`, `"IVF_FLAT"`) |
 | `name` | `str`, optional | Index name, auto-generated if not provided |
 | `replace` | `bool`, optional | Whether to replace existing index, default is `True` |
 | `num_workers` | `int`, optional | Number of Ray workers to use, default is 4 |
@@ -285,7 +289,7 @@ updated_dataset.scanner(filter="id = 100", columns=["id", "text"]).to_table()
 updated_dataset.scanner(filter="id >= 200 AND id < 800", columns=["id", "text"]).to_table()
 ```
 
-### Vector Index (IVF_PQ / IVF_SQ / IVF_FLAT)
+### Vector Index (IVF_PQ / IVF_RQ / IVF_SQ / IVF_FLAT)
 ```python
 import lance_ray as lr
 
@@ -308,6 +312,16 @@ updated_dataset = lr.create_index(
     column="vector",
     index_type="IVF_SQ",
     name="idx_ivf_sq",
+    num_workers=4,
+    num_partitions=256,
+)
+
+# Build a distributed IVF_RQ index
+updated_dataset = lr.create_index(
+    uri="path/to/dataset.lance",
+    column="vector",
+    index_type="IVF_RQ",
+    name="idx_ivf_rq",
     num_workers=4,
     num_partitions=256,
 )

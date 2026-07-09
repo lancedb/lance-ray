@@ -255,6 +255,87 @@ def test_create_index_uses_sample_rate_for_global_training(monkeypatch):
     assert fake_dataset.commit_kwargs["segments"] == ["segment"]
 
 
+def test_create_index_supports_ivf_rq(monkeypatch):
+    """IVF_RQ should be accepted and should not trigger PQ training."""
+
+    captured = {}
+    fake_dataset = _FakeDataset()
+
+    class FakeIndicesBuilder:
+        dimension = 16
+
+        def __init__(self, dataset, column):
+            captured["builder_dataset"] = dataset
+            captured["builder_column"] = column
+
+        def train_ivf(self, **kwargs):
+            captured["train_ivf"] = kwargs
+            return SimpleNamespace(centroids="ivf_centroids", num_partitions=4)
+
+        def train_pq(self, ivf_model, **kwargs):
+            captured["train_pq"] = kwargs
+            raise AssertionError("IVF_RQ should not train a PQ codebook")
+
+    def fake_handle_vector_fragment_index(**kwargs):
+        captured["fragment_handler_kwargs"] = kwargs
+        return lambda fragment_ids: {
+            "status": "success",
+            "fragment_ids": fragment_ids,
+            "segment_index": "segment",
+        }
+
+    def fake_put_vector_index_artifacts(ivf_centroids, pq_codebook):
+        captured["put_artifacts"] = (ivf_centroids, pq_codebook)
+        return "ivf_ref", None
+
+    def fake_map_async_with_pool(**kwargs):
+        captured["map_kwargs"] = kwargs
+        kwargs["create_fragment_handler"]()
+        return [
+            {
+                "status": "success",
+                "fragment_ids": [0, 1],
+                "segment_index": "segment",
+            }
+        ]
+
+    monkeypatch.setattr(index_mod, "_check_pylance_version", lambda: None)
+    monkeypatch.setattr(index_mod, "IndicesBuilder", FakeIndicesBuilder)
+    monkeypatch.setattr(index_mod, "LanceDataset", lambda *args, **kwargs: fake_dataset)
+    monkeypatch.setattr(
+        index_mod,
+        "_handle_vector_fragment_index",
+        fake_handle_vector_fragment_index,
+    )
+    monkeypatch.setattr(
+        index_mod,
+        "_put_vector_index_artifacts_in_object_store",
+        fake_put_vector_index_artifacts,
+    )
+    monkeypatch.setattr(index_mod, "_map_async_with_pool", fake_map_async_with_pool)
+
+    updated_dataset = index_mod.create_index(
+        uri=fake_dataset,
+        column="vector",
+        index_type="IVF_RQ",
+        name="vector_idx",
+        num_workers=2,
+        num_partitions=4,
+        sample_rate=8,
+        rabitq_model="shared-rq-model",
+    )
+
+    assert updated_dataset is fake_dataset
+    assert captured["train_ivf"]["sample_rate"] == 8
+    assert "train_pq" not in captured
+    assert captured["put_artifacts"] == ("ivf_centroids", None)
+    assert captured["fragment_handler_kwargs"]["index_type"] == "IVF_RQ"
+    assert captured["fragment_handler_kwargs"]["ivf_centroids"] == "ivf_ref"
+    assert captured["fragment_handler_kwargs"]["pq_codebook"] is None
+    assert captured["fragment_handler_kwargs"]["rabitq_model"] == "shared-rq-model"
+    assert fake_dataset.commit_kwargs["segments"] == ["segment"]
+
+
 def test_create_index_rejects_non_positive_sample_rate(monkeypatch):
     """Invalid sample rates should fail before training starts."""
 
