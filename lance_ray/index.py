@@ -215,7 +215,7 @@ def _build_rabitq_model(*, dimension: int, num_bits: int = 1) -> str:
     return indices.build_rq_model(dimension=dimension, num_bits=num_bits)
 
 
-_SCALAR_SEGMENT_INDEX_TYPES = {"BTREE", "BITMAP", "INVERTED", "FTS"}
+_SCALAR_SEGMENT_INDEX_TYPES = {"BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"}
 
 
 def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
@@ -520,7 +520,13 @@ def create_scalar_index(
                 f"Index type must be one of {valid_index_types}, not '{index_type}'"
             )
 
-        supported_distributed_types = {"INVERTED", "FTS", "BTREE", "BITMAP"}
+        supported_distributed_types = {
+            "INVERTED",
+            "FTS",
+            "BTREE",
+            "BITMAP",
+            "ZONEMAP",
+        }
         if index_type not in supported_distributed_types:
             raise ValueError(
                 "Distributed indexing currently supports "

@@ -1213,6 +1213,101 @@ class TestDistributedBitmapIndexing:
         assert "fragment_bitmap_idx" in plan
 
 
+class TestDistributedZonemapIndexing:
+    """Distributed ZONEMAP indexing tests."""
+
+    def test_distributed_zonemap_index_matches_baseline(self, temp_dir):
+        """Build ZONEMAP segments on Ray workers and verify query results."""
+        with_index = generate_multi_fragment_dataset(
+            Path(temp_dir) / "with_zonemap",
+            num_fragments=4,
+            rows_per_fragment=250,
+        )
+        without_index = generate_multi_fragment_dataset(
+            Path(temp_dir) / "without_zonemap",
+            num_fragments=4,
+            rows_per_fragment=250,
+        )
+
+        updated_dataset = lr.create_scalar_index(
+            uri=with_index.uri,
+            column="id",
+            index_type="ZONEMAP",
+            name="id_zonemap_idx",
+            replace=False,
+            num_workers=2,
+            num_segments=4,
+        )
+
+        our_index = next(
+            (
+                idx
+                for idx in updated_dataset.describe_indices()
+                if idx.name == "id_zonemap_idx"
+            ),
+            None,
+        )
+        assert our_index is not None, "ZONEMAP index not found by name"
+        assert our_index.index_type == "ZoneMap"
+        assert len(our_index.segments) == 4
+
+        indexed = updated_dataset.scanner(
+            filter="id >= 250 AND id < 750",
+            columns=["id", "fragment_id"],
+        ).to_table()
+        baseline = without_index.scanner(
+            filter="id >= 250 AND id < 750",
+            columns=["id", "fragment_id"],
+        ).to_table()
+
+        assert indexed.num_rows == baseline.num_rows
+        assert sorted(indexed.column("id").to_pylist()) == sorted(
+            baseline.column("id").to_pylist()
+        )
+
+        plan = updated_dataset.scanner(
+            filter="id >= 250 AND id < 750",
+            columns=["id"],
+            use_scalar_index=True,
+        ).explain_plan()
+        assert "ScalarIndexQuery" in plan
+        assert "id_zonemap_idx" in plan
+
+    def test_distributed_zonemap_index_for_selected_fragments(self, temp_dir):
+        """Build and commit ZONEMAP segments for selected fragments."""
+        dataset = generate_multi_fragment_dataset(
+            temp_dir,
+            num_fragments=4,
+            rows_per_fragment=250,
+        )
+        fragment_ids = [
+            fragment.fragment_id for fragment in list(dataset.get_fragments())[:2]
+        ]
+
+        updated_dataset = lr.create_scalar_index(
+            uri=dataset.uri,
+            column="id",
+            index_type="ZONEMAP",
+            name="partial_zonemap_idx",
+            replace=False,
+            fragment_ids=fragment_ids,
+            num_workers=2,
+            num_segments=2,
+        )
+
+        our_index = next(
+            (
+                idx
+                for idx in updated_dataset.describe_indices()
+                if idx.name == "partial_zonemap_idx"
+            ),
+            None,
+        )
+        assert our_index is not None, "ZONEMAP index not found by name"
+        assert our_index.index_type == "ZoneMap"
+        assert len(our_index.segments) == 2
+
+
 class TestOptimizeIndices:
     """Test cases for optimize_indices (incremental index optimization)."""
 
