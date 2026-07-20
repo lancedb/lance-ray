@@ -105,9 +105,7 @@ def _distribute_fragments_balanced(
 
     # Greedy assignment: assign each fragment to the segment with minimum workload
     for frag_info in fragment_info:
-        min_workload_idx = min(
-            range(num_segments), key=lambda i: segment_workloads[i]
-        )
+        min_workload_idx = min(range(num_segments), key=lambda i: segment_workloads[i])
         segment_batches[min_workload_idx].append(frag_info["id"])
         segment_workloads[min_workload_idx] += frag_info["size"]
 
@@ -1317,8 +1315,7 @@ def create_index(
 
     if not replace and _index_exists(dataset_obj, name):
         raise ValueError(
-            f"Index with name '{name}' already exists. Set replace=True "
-            "to replace it."
+            f"Index with name '{name}' already exists. Set replace=True to replace it."
         )
 
     fragments = dataset_obj.get_fragments()
