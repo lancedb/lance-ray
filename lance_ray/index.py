@@ -593,6 +593,7 @@ def create_scalar_index(
                     pa.types.is_integer(value_type)
                     or pa.types.is_floating(value_type)
                     or pa.types.is_string(value_type)
+                    or pa.types.is_large_string(value_type)
                 )
                 if not is_supported:
                     raise TypeError(

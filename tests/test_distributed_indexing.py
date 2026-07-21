@@ -1685,3 +1685,42 @@ def test_distributed_nested_vector_index_and_search(tmp_path, index_type):
 
     assert result.num_rows == 5
     assert result.column("id").to_pylist()[0] == 0
+
+
+@pytest.fixture
+def large_string_dataset(temp_dir):
+    """Create a multi-fragment dataset whose indexed column is large_string."""
+    path = Path(temp_dir) / "large_string.lance"
+    table = pa.table(
+        {
+            "id": pa.array(range(8), type=pa.int64()),
+            "large_text": pa.array(
+                [f"value-{i:02d}" for i in range(8)], type=pa.large_string()
+            ),
+        }
+    )
+    lance.write_dataset(table, str(path), max_rows_per_file=2)
+    return str(path)
+
+
+def test_build_distributed_btree_index_on_large_string(large_string_dataset):
+    """BTREE indexes must accept large_string columns.
+
+    This exercises the real pylance build (lance-format/lance#7525) rather than
+    a mocked worker, so it fails if the pinned pylance cannot index large_string.
+    """
+    updated_dataset = lr.create_scalar_index(
+        uri=large_string_dataset,
+        column="large_text",
+        index_type="BTREE",
+        num_workers=2,
+    )
+
+    indices = {idx.name: idx for idx in updated_dataset.describe_indices()}
+    assert "large_text_idx" in indices
+    assert indices["large_text_idx"].field_names == ["large_text"]
+
+    results = updated_dataset.scanner(
+        filter="large_text = 'value-03'", columns=["id"]
+    ).to_table()
+    assert results.column("id").to_pylist() == [3]
