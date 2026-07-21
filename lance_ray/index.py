@@ -531,7 +531,6 @@ def create_scalar_index(
                 f"{sorted(supported_distributed_types)} index types, "
                 f"not '{index_type}'"
             )
-
     elif not isinstance(index_type, IndexConfig):
         raise ValueError(
             "index_type must be a string literal or IndexConfig object, got "

@@ -1206,9 +1206,7 @@ class TestDistributedZoneMapIndexing:
         indices = updated_dataset.describe_indices()
         assert len(indices) > 0, "No indices found after distributed ZONEMAP build"
 
-        our_index = next(
-            (idx for idx in indices if idx.name == "zonemap_id_idx"), None
-        )
+        our_index = next((idx for idx in indices if idx.name == "zonemap_id_idx"), None)
         assert our_index is not None, "ZONEMAP index not found by name"
         assert our_index.index_type == "ZoneMap", (
             f"Expected ZoneMap index, got {our_index.index_type}"
