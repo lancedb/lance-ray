@@ -138,7 +138,9 @@ def compact_files(
     logger.info("Starting distributed compaction")
 
     # Step 1: Create the compaction plan
-    compaction_plan = Compaction.plan(dataset, compaction_options)
+    # Compaction.plan requires a dict; CompactionOptions is a TypedDict, so
+    # an empty instance stands in for "all defaults" when the caller omits it.
+    compaction_plan = Compaction.plan(dataset, compaction_options or CompactionOptions())
 
     logger.info(f"Compaction plan created with {compaction_plan.num_tasks()} tasks")
 

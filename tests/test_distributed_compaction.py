@@ -106,6 +106,29 @@ class TestDistributedCompaction:
         assert fragments[0].count_rows() == 20, "Fragment should have 20 rows"
         assert dataset.count_rows() == 20, "Should still have 20 total rows"
 
+    def test_compaction_without_options(self, temp_dir):
+        """
+        Test that compact_files works when compaction_options is omitted.
+
+        Regression test: the default None used to be passed straight into
+        Compaction.plan, which rejects non-dict values with
+        "TypeError: 'None' is not an instance of 'dict'".
+        """
+        dataset_path = Path(temp_dir) / "test_dataset_default_options"
+
+        fragments = [
+            pd.DataFrame({"id": range(i * 10, (i + 1) * 10)}) for i in range(2)
+        ]
+        dataset = create_dataset_with_fragments(dataset_path, fragments)
+        assert len(dataset.get_fragments()) == 2
+
+        metrics = lr.compact_files(uri=str(dataset_path), num_workers=1)
+
+        assert metrics is not None, "Two small fragments should be compacted"
+        assert metrics.fragments_removed == 2
+        dataset = lance.dataset(str(dataset_path))
+        assert dataset.count_rows() == 20
+
     def test_deletion_compaction(self, temp_dir):
         """
         Test compaction that materializes deletions.
