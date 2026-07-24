@@ -221,7 +221,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
@@ -387,7 +387,7 @@ requires-dist = [
     { name = "more-itertools", marker = "python_full_version < '3.12'", specifier = ">=2.6.0" },
     { name = "packaging" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "pylance", specifier = "==9.0.0rc1" },
+    { name = "pylance", specifier = ">=10.0.0b4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
@@ -1024,7 +1024,7 @@ wheels = [
 
 [[package]]
 name = "pylance"
-version = "9.0.0rc1"
+version = "10.0.0b4"
 source = { registry = "https://pypi.fury.io/lance-format" }
 dependencies = [
     { name = "lance-namespace" },
@@ -1033,12 +1033,11 @@ dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://pypi.fury.io/lance-format/-/ver_vEHBE/pylance-9.0.0rc1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:f0b6b02a1808bb3072ee7fe4e36614cae6f86302513e73ec7f55b2234a963b24" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_1Jipm4/pylance-9.0.0rc1-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:30f0ebf0d88034301819eb964f9236ce555aaa58e7ab89c5975a3e2250bbb405" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_IvKxo/pylance-9.0.0rc1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:44609ea2615ea6e684b85478d1694af2026458f61cf7895ecc75e238bfd17aa8" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_2hidj1/pylance-9.0.0rc1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:182167a8dba9eeabffbffd53bd5b8548613d4d459b7cd7b34a840dd00cbb806f" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_1dFx3r/pylance-9.0.0rc1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:8a63b11e814b7eab758bcaf0d6f97eb05ea86203d9fb0af718c462c24c7d6c9c" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_2a8dSh/pylance-9.0.0rc1-cp310-abi3-win_amd64.whl", hash = "sha256:2ff8b953ae2b0550490c1a7efd210aa91bc223d200ffac28849056cfd7436d97" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_16MAoB/pylance-10.0.0b4-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:6605cf80bdf9adf53c2849ca1e1797d734806c64473a3732b6db84bd343bdcc5" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_qAypo/pylance-10.0.0b4-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d7fbbe6a6b65efc2349eaac369004a0b734109271152910cc65aaa3be6418528" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_2cBn8J/pylance-10.0.0b4-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:81ab4e1d3cc6d79f114a7d09348ec57d84c30ffae1be55530890060fdb026732" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_2euRqj/pylance-10.0.0b4-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:e13a1467c7df961e69e045307d4fb83245696a7b57769f46ddf3d5006b5edc9d" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_pfsiU/pylance-10.0.0b4-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:7321e7c0f8905e3f5ef6636b6c67ae59ec61da16c2d99be6ba757f3e17568afa" },
 ]
 
 [[package]]
