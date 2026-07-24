@@ -270,10 +270,7 @@ dataset = lance.dataset("path/to/dataset")
 
 # Build distributed index
 updated_dataset = lr.create_scalar_index(
-   uri=dataset.uri,
-   column="text",
-   index_type="INVERTED",
-   num_workers=4
+    uri=dataset.uri, column="text", index_type="INVERTED", num_workers=4
 )
 
 # Verify index creation
@@ -282,8 +279,7 @@ print(f"Index list: {indices}")
 
 # Use index for search
 results = updated_dataset.scanner(
-   full_text_query="search term",
-   columns=["id", "text"]
+    full_text_query="search term", columns=["id", "text"]
 ).to_table()
 print(f"Search results: {results}")
 ```
@@ -304,7 +300,9 @@ updated_dataset = lr.create_scalar_index(
 
 # Example queries
 updated_dataset.scanner(filter="id = 100", columns=["id", "text"]).to_table()
-updated_dataset.scanner(filter="id >= 200 AND id < 800", columns=["id", "text"]).to_table()
+updated_dataset.scanner(
+    filter="id >= 200 AND id < 800", columns=["id", "text"]
+).to_table()
 ```
 
 ### Vector Index (IVF_PQ / IVF_RQ / IVF_SQ / IVF_FLAT)
@@ -321,7 +319,7 @@ updated_dataset = lr.create_index(
     num_partitions=256,
     num_sub_vectors=16,
     sample_rate=64,
-    metric="l2"
+    metric="l2",
 )
 
 # Build a distributed IVF_SQ index
@@ -399,11 +397,11 @@ print(plan)
 
 ```python
 updated_dataset = lr.create_scalar_index(
-   uri="path/to/dataset",
-   column="text",
-   index_type="INVERTED",
-   num_workers=4,
-   ray_remote_args={"num_cpus": 2, "resources": {"custom_resource": 1}}
+    uri="path/to/dataset",
+    column="text",
+    index_type="INVERTED",
+    num_workers=4,
+    ray_remote_args={"num_cpus": 2, "resources": {"custom_resource": 1}},
 )
 ```
 
@@ -444,21 +442,21 @@ The current global Pool integration is limited to `vector_search()`.  The same p
 ```python
 # Create index with custom name
 updated_dataset = lr.create_scalar_index(
-   uri="path/to/dataset",
-   column="text",
-   index_type="INVERTED",
-   name="my_text_index",
-   num_workers=4
+    uri="path/to/dataset",
+    column="text",
+    index_type="INVERTED",
+    name="my_text_index",
+    num_workers=4,
 )
 
 # Try to create another index with the same name (will replace by default)
 updated_dataset = lr.create_scalar_index(
-   uri="path/to/dataset",
-   column="text",
-   index_type="INVERTED",
-   name="my_text_index",  # Same name as before
-   replace=True,          # Explicitly allow replacement (default behavior)
-   num_workers=4
+    uri="path/to/dataset",
+    column="text",
+    index_type="INVERTED",
+    name="my_text_index",  # Same name as before
+    replace=True,  # Explicitly allow replacement (default behavior)
+    num_workers=4,
 )
 
 # Prevent index replacement
@@ -466,12 +464,12 @@ import lance_ray as lr
 
 try:
     updated_dataset = lr.create_scalar_index(
-       uri="path/to/dataset",
-       column="text",
-       index_type="INVERTED",
-       name="my_text_index",  # Same name as existing index
-       replace=False,         # Prevent replacement
-       num_workers=4
+        uri="path/to/dataset",
+        column="text",
+        index_type="INVERTED",
+        name="my_text_index",  # Same name as existing index
+        replace=False,  # Prevent replacement
+        num_workers=4,
     )
 except ValueError as e:
     print(f"Index creation failed: {e}")
