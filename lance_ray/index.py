@@ -213,15 +213,91 @@ def _build_rabitq_model(*, dimension: int, num_bits: int = 1) -> str:
     return indices.build_rq_model(dimension=dimension, num_bits=num_bits)
 
 
-_SCALAR_SEGMENT_INDEX_TYPES = {"BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"}
+_DistributedScalarIndexType: TypeAlias = Literal[
+    "BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"
+]
+_SCALAR_SEGMENT_INDEX_TYPES = frozenset(
+    {"BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"}
+)
 
 
-def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
+def _normalize_distributed_scalar_index_type(
+    index_type: _DistributedScalarIndexType | str | IndexConfig,
+) -> tuple[str, str | IndexConfig]:
+    """Return the logical type and worker input for a distributed scalar index.
+
+    Keep the caller-owned configuration immutable while normalizing its type for the
+    worker.  ``IndexConfig`` plugin names are normalized to lowercase; FTS is a
+    public alias for Core's ``inverted`` plugin.
+    """
     if isinstance(index_type, str):
-        return index_type.upper()
-    if isinstance(index_type, IndexConfig):
-        return index_type.index_type.upper()
-    return None
+        logical_index_type = index_type.upper()
+        worker_index_type: str | IndexConfig = logical_index_type
+    elif isinstance(index_type, IndexConfig):
+        logical_index_type = index_type.index_type.upper()
+        core_index_type = (
+            "inverted" if logical_index_type == "FTS" else logical_index_type.lower()
+        )
+        worker_index_type = IndexConfig(core_index_type, index_type.parameters)
+    else:
+        raise ValueError(
+            "index_type must be a string literal or IndexConfig object, got "
+            f"{type(index_type)}"
+        )
+
+    if logical_index_type not in _SCALAR_SEGMENT_INDEX_TYPES:
+        raise ValueError(
+            f"Distributed indexing does not support index type '{logical_index_type}'"
+        )
+
+    return logical_index_type, worker_index_type
+
+
+def _validate_distributed_scalar_index_field(
+    field: pa.Field, column: str, logical_index_type: str
+) -> None:
+    """Apply the Core scalar-index field contract before scheduling Ray workers."""
+    field_type = field.type
+    field_metadata = field.metadata or {}
+    if hasattr(field_type, "storage_type"):
+        field_type = field_type.storage_type
+
+    if logical_index_type in {"BTREE", "BITMAP", "ZONEMAP"}:
+        is_supported = (
+            pa.types.is_integer(field_type)
+            or pa.types.is_floating(field_type)
+            or pa.types.is_boolean(field_type)
+            or pa.types.is_string(field_type)
+            or pa.types.is_large_string(field_type)
+            or pa.types.is_temporal(field_type)
+            or pa.types.is_fixed_size_binary(field_type)
+        )
+        if not is_supported:
+            raise TypeError(
+                f"Column {column} must be int, float, bool, string, large string, "
+                f"fixed-size binary, or temporal for {logical_index_type} index, "
+                f"got {field_type}"
+            )
+    else:
+        value_type = field_type
+        if pa.types.is_list(field_type) or pa.types.is_large_list(field_type):
+            value_type = field_type.value_type
+        is_json = (
+            pa.types.is_large_binary(value_type)
+            and field_metadata.get(b"ARROW:extension:name") == b"lance.json"
+        )
+        if not (
+            pa.types.is_string(value_type)
+            or pa.types.is_large_string(value_type)
+            or is_json
+        ):
+            raise TypeError(
+                f"Column {column} must be string, large string, list of strings, "
+                f"or json for {logical_index_type} index, got {value_type}"
+            )
+
+    if pa.types.is_duration(field_type):
+        raise TypeError(f"Scalar index column {column} cannot currently be a duration")
 
 
 def _handle_scalar_segment_index(
@@ -409,14 +485,7 @@ def create_scalar_index(
     uri: Optional[Union[str, "lance.LanceDataset"]] = None,
     *,
     column: str,
-    index_type: Literal["BTREE"]
-    | Literal["BITMAP"]
-    | Literal["LABEL_LIST"]
-    | Literal["INVERTED"]
-    | Literal["FTS"]
-    | Literal["NGRAM"]
-    | Literal["ZONEMAP"]
-    | IndexConfig,
+    index_type: _DistributedScalarIndexType | IndexConfig,
     table_id: Optional[list[str]] = None,
     name: Optional[str] = None,
     replace: bool = True,
@@ -440,8 +509,8 @@ def create_scalar_index(
             ``LanceDataset``, its dataset URI is retained so distributed
             workers and the final commit stay on the same Lance branch.
         column: Column name to index.
-        index_type: Type of index to build ("BTREE", "BITMAP", "LABEL_LIST",
-            "INVERTED", "FTS", "NGRAM", "ZONEMAP") or IndexConfig object.
+        index_type: Type of index to build ("BTREE", "BITMAP", "INVERTED", "FTS",
+            or "ZONEMAP") or IndexConfig object. FTS is an alias for INVERTED.
         table_id: The table identifier as a list of strings. Must be provided
             together with namespace_impl.
         name: Name of the index (generated if None).
@@ -467,7 +536,7 @@ def create_scalar_index(
 
     Raises:
         ValueError: If input parameters are invalid.
-        TypeError: If column type is not string.
+        TypeError: If the column type is unsupported by the selected index type.
         RuntimeError: If index building fails or pylance version is incompatible.
     """
     # Check pylance version compatibility
@@ -508,33 +577,9 @@ def create_scalar_index(
     if block_size is not None and block_size <= 0:
         raise ValueError(f"block_size must be positive, got {block_size}")
 
-    if isinstance(index_type, str):
-        valid_index_types = [
-            "BTREE",
-            "BITMAP",
-            "LABEL_LIST",
-            "INVERTED",
-            "FTS",
-            "NGRAM",
-            "ZONEMAP",
-        ]
-        if index_type not in valid_index_types:
-            raise ValueError(
-                f"Index type must be one of {valid_index_types}, not '{index_type}'"
-            )
-
-        supported_distributed_types = {"INVERTED", "FTS", "BTREE", "BITMAP", "ZONEMAP"}
-        if index_type not in supported_distributed_types:
-            raise ValueError(
-                "Distributed indexing currently supports "
-                f"{sorted(supported_distributed_types)} index types, "
-                f"not '{index_type}'"
-            )
-    elif not isinstance(index_type, IndexConfig):
-        raise ValueError(
-            "index_type must be a string literal or IndexConfig object, got "
-            f"{type(index_type)}"
-        )
+    logical_index_type, index_type = _normalize_distributed_scalar_index_type(
+        index_type
+    )
 
     # Note: Ray initialization is now handled by the Pool, following the pattern from io.py
     # This removes the need for explicit ray.init() calls
@@ -571,41 +616,9 @@ def create_scalar_index(
     column = resolved_column.path
     field = resolved_column.field
 
-    # Check column type according to index type
-    value_type = field.type
-    if pa.types.is_list(field.type) or pa.types.is_large_list(field.type):
-        value_type = field.type.value_type
+    _validate_distributed_scalar_index_field(field, column, logical_index_type)
 
-    if isinstance(index_type, str):
-        match index_type:
-            case "INVERTED" | "FTS":
-                if not (
-                    pa.types.is_string(value_type)
-                    or pa.types.is_large_string(value_type)
-                ):
-                    raise TypeError(
-                        f"Column {column} must be string type for {index_type} "
-                        f"index, got {value_type}"
-                    )
-            case "BTREE" | "ZONEMAP":
-                is_supported = (
-                    pa.types.is_integer(value_type)
-                    or pa.types.is_floating(value_type)
-                    or pa.types.is_string(value_type)
-                    or pa.types.is_large_string(value_type)
-                )
-                if not is_supported:
-                    raise TypeError(
-                        f"Column {column} must be numeric or string type for "
-                        f"{index_type} index, got {value_type}"
-                    )
-            case _:
-                # For other index types, skip strict validation to maintain compatibility
-                pass
-
-    use_segment_workflow = (
-        _scalar_index_type_name(index_type) in _SCALAR_SEGMENT_INDEX_TYPES
-    )
+    use_segment_workflow = logical_index_type in _SCALAR_SEGMENT_INDEX_TYPES
 
     if name is None:
         name = f"{column}_idx"

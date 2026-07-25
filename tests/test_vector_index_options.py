@@ -20,7 +20,13 @@ def _load_index_module_with_stubs():
 
     lance_dataset = ModuleType("lance.dataset")
     lance_dataset.Index = type("Index", (), {})
-    lance_dataset.IndexConfig = type("IndexConfig", (), {})
+
+    class IndexConfig:
+        def __init__(self, index_type, parameters):
+            self.index_type = index_type
+            self.parameters = parameters
+
+    lance_dataset.IndexConfig = IndexConfig
     lance_dataset.LanceDataset = object
 
     lance_indices = ModuleType("lance.indices")
@@ -60,6 +66,7 @@ class _FakeField:
     def __init__(self, name, field_type=None):
         self.name = name
         self.type = field_type or index_mod.pa.float32()
+        self.metadata = None
 
 
 class _FakeLanceField:
@@ -69,7 +76,7 @@ class _FakeLanceField:
 
 class _FakeLanceSchema:
     def field(self, column):
-        if column not in {"value", "text"}:
+        if column not in {"value", "text", "flag", "tags"}:
             raise KeyError(column)
         return _FakeLanceField()
 
@@ -82,6 +89,10 @@ class _FakeSchema:
             return _FakeField(column, index_mod.pa.int64())
         if column == "text":
             return _FakeField(column, index_mod.pa.string())
+        if column == "flag":
+            return _FakeField(column, index_mod.pa.bool_())
+        if column == "tags":
+            return _FakeField(column, index_mod.pa.list_(index_mod.pa.string()))
         else:
             raise KeyError(column)
 
@@ -91,6 +102,8 @@ class _FakeSchema:
                 _FakeField("vector"),
                 _FakeField("value", index_mod.pa.int64()),
                 _FakeField("text", index_mod.pa.string()),
+                _FakeField("flag", index_mod.pa.bool_()),
+                _FakeField("tags", index_mod.pa.list_(index_mod.pa.string())),
             ]
         )
 
@@ -445,10 +458,7 @@ def test_create_index_rejects_invalid_num_segments(monkeypatch):
         )
 
 
-@pytest.mark.parametrize("index_type", ["BTREE", "BITMAP", "INVERTED", "FTS"])
-def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
-    """Migrated scalar indexes should use Lance's segment workflow."""
-
+def _patch_scalar_segment_workflow(monkeypatch):
     captured = {"loads": []}
     fake_dataset = _FakeDataset()
 
@@ -482,6 +492,16 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
         fake_handle_scalar_segment_index,
     )
     monkeypatch.setattr(index_mod, "_map_async_with_pool", fake_map_async_with_pool)
+    return captured, fake_dataset
+
+
+@pytest.mark.parametrize(
+    "index_type", ["BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"]
+)
+def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
+    """Migrated scalar indexes should use Lance's segment workflow."""
+
+    captured, fake_dataset = _patch_scalar_segment_workflow(monkeypatch)
 
     column = "text" if index_type in {"INVERTED", "FTS"} else "value"
     updated_dataset = index_mod.create_scalar_index(
@@ -497,6 +517,153 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
     assert captured["fragment_handler_kwargs"]["index_type"] == index_type
     assert captured["fragment_handler_kwargs"]["block_size"] == 4096
     assert fake_dataset.commit_kwargs["segments"] == ["segment"]
+
+
+@pytest.mark.parametrize(
+    ("config_type", "column", "worker_type"),
+    [
+        ("btree", "value", "btree"),
+        ("bitmap", "value", "bitmap"),
+        ("inverted", "text", "inverted"),
+        ("fts", "text", "inverted"),
+        ("zonemap", "value", "zonemap"),
+    ],
+)
+def test_scalar_index_config_uses_segment_path(
+    monkeypatch, config_type, column, worker_type
+):
+    """IndexConfig input uses the same segment path without mutating the caller."""
+
+    captured, fake_dataset = _patch_scalar_segment_workflow(monkeypatch)
+    parameters = {"test_parameter": config_type}
+    index_config = index_mod.IndexConfig(config_type, parameters)
+
+    updated_dataset = index_mod.create_scalar_index(
+        uri="memory://fake",
+        column=column,
+        index_type=index_config,
+        num_workers=2,
+    )
+
+    worker_config = captured["fragment_handler_kwargs"]["index_type"]
+    assert updated_dataset is fake_dataset
+    assert worker_config is not index_config
+    assert worker_config.index_type == worker_type
+    assert worker_config.parameters == parameters
+    assert index_config.index_type == config_type
+    assert index_config.parameters == parameters
+
+
+@pytest.mark.parametrize(
+    "make_index_type",
+    [
+        lambda: "ngram",
+        lambda: index_mod.IndexConfig("ngram", {}),
+        lambda: "LABEL_LIST",
+        lambda: index_mod.IndexConfig("label_list", {}),
+    ],
+    ids=[
+        "string-ngram",
+        "config-ngram",
+        "string-label-list",
+        "config-label-list",
+    ],
+)
+def test_scalar_index_rejects_unsupported_types(
+    monkeypatch, make_index_type
+):
+    """Unsupported input forms fail before a Ray worker is created."""
+
+    captured, _ = _patch_scalar_segment_workflow(monkeypatch)
+
+    with pytest.raises(ValueError, match="Distributed indexing does not support"):
+        index_mod.create_scalar_index(
+            uri="memory://fake",
+            column="text",
+            index_type=make_index_type(),
+            num_workers=2,
+        )
+
+    assert "map_kwargs" not in captured
+
+
+@pytest.mark.parametrize(
+    "make_index_type",
+    [lambda: "INVERTED", lambda: index_mod.IndexConfig("inverted", {})],
+    ids=["string", "config"],
+)
+def test_scalar_index_validates_text_column(
+    monkeypatch, make_index_type
+):
+    """String and IndexConfig forms reject invalid FTS fields on the driver."""
+
+    captured, _ = _patch_scalar_segment_workflow(monkeypatch)
+
+    with pytest.raises(TypeError, match="must be string, large string"):
+        index_mod.create_scalar_index(
+            uri="memory://fake",
+            column="value",
+            index_type=make_index_type(),
+            num_workers=2,
+        )
+
+    assert "map_kwargs" not in captured
+
+
+@pytest.mark.parametrize(
+    "make_index_type",
+    [
+        lambda: "BTREE",
+        lambda: index_mod.IndexConfig("btree", {}),
+        lambda: "ZONEMAP",
+        lambda: index_mod.IndexConfig("zonemap", {}),
+    ],
+    ids=["btree-string", "btree-config", "zonemap-string", "zonemap-config"],
+)
+def test_scalar_index_accepts_ordered_field(
+    monkeypatch, make_index_type
+):
+    """Core-supported boolean fields are accepted for ordered index forms."""
+
+    captured, fake_dataset = _patch_scalar_segment_workflow(monkeypatch)
+
+    updated_dataset = index_mod.create_scalar_index(
+        uri="memory://fake",
+        column="flag",
+        index_type=make_index_type(),
+        num_workers=2,
+    )
+
+    assert updated_dataset is fake_dataset
+    assert "map_kwargs" in captured
+
+
+@pytest.mark.parametrize(
+    "make_index_type",
+    [
+        lambda: "BITMAP",
+        lambda: index_mod.IndexConfig("bitmap", {}),
+        lambda: "ZONEMAP",
+        lambda: index_mod.IndexConfig("zonemap", {}),
+    ],
+    ids=["bitmap-string", "bitmap-config", "zonemap-string", "zonemap-config"],
+)
+def test_scalar_index_validates_ordered_field(
+    monkeypatch, make_index_type
+):
+    """Invalid ordered-index fields fail on the driver for both input forms."""
+
+    captured, _ = _patch_scalar_segment_workflow(monkeypatch)
+
+    with pytest.raises(TypeError, match="must be int, float, bool, string"):
+        index_mod.create_scalar_index(
+            uri="memory://fake",
+            column="tags",
+            index_type=make_index_type(),
+            num_workers=2,
+        )
+
+    assert "map_kwargs" not in captured
 
 
 def test_create_index_passes_block_size_to_loads_and_handler(monkeypatch):

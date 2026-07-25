@@ -404,7 +404,7 @@ class TestDistributedIndexing:
 
         with pytest.raises(
             ValueError,
-            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID'",
+            match="Distributed indexing does not support index type 'INVALID'",
         ):
             lr.create_scalar_index(
                 uri=dataset_uri,
@@ -453,7 +453,10 @@ class TestDistributedIndexing:
         path = Path(temp_dir) / "non_string_test.lance"
         lr.write_lance(dataset, str(path), min_rows_per_file=2, max_rows_per_file=2)
 
-        with pytest.raises(TypeError, match="must be string type"):
+        with pytest.raises(
+            TypeError,
+            match="must be string, large string, list of strings, or json",
+        ):
             lr.create_scalar_index(
                 uri=str(path),
                 column="numeric_col",
@@ -925,7 +928,7 @@ class TestDistributedIndexing:
         # Test with invalid index type
         with pytest.raises(
             ValueError,
-            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID_TYPE'",
+            match="Distributed indexing does not support index type 'INVALID_TYPE'",
         ):
             lr.create_scalar_index(
                 uri=ds.uri,

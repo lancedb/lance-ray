@@ -22,10 +22,8 @@ def create_scalar_index(
     index_type: Union[
         Literal["BTREE"],
         Literal["BITMAP"],
-        Literal["LABEL_LIST"],
         Literal["INVERTED"],
         Literal["FTS"],
-        Literal["NGRAM"],
         Literal["ZONEMAP"],
         IndexConfig,
     ],
@@ -53,7 +51,7 @@ def create_scalar_index(
 |-----------|------|-------------|
 | `uri` | `str`, optional | The URI of the Lance dataset. Either `uri` OR (`namespace_impl` + `table_id`) must be provided. |
 | `column` | `str` | Column name to index |
-| `index_type` | `str` or `IndexConfig` | Index type, can be `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"LABEL_LIST"`, `"NGRAM"`, `"ZONEMAP"`, or `IndexConfig` object |
+| `index_type` | `str` or `IndexConfig` | Index type, can be `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"ZONEMAP"`, or `IndexConfig` object. `"FTS"` is an alias for `"INVERTED"`. |
 | `table_id` | `list[str]`, optional | The table identifier as a list of strings. |
 | `name` | `str`, optional | Index name, auto-generated if not provided |
 | `replace` | `bool`, optional | Whether to replace existing index with the same name, default is `True` |
@@ -486,7 +484,7 @@ except ValueError as e:
 
 ### Important Notes
 
-- **Index Type Support**: For distributed indexing, currently only `"INVERTED"`/`"FTS"`/`"BTREE"`/`"BITMAP"`/`"ZONEMAP"` index types are supported, even though the function signature accepts other index types.
+- **Index Type Support**: Distributed scalar indexing supports only `"INVERTED"`/`"FTS"`/`"BTREE"`/`"BITMAP"`/`"ZONEMAP"`.
 - **Default Behavior**: The `replace` parameter defaults to `True`, meaning existing indices with the same name will be replaced without warning. Set `replace=False` to prevent accidental overwrites.
 - **Fragment Selection**: Use `fragment_ids` parameter to build indices on specific fragments only. This is useful for incremental index building or testing.
 - **Error Handling**: When `replace=False` and an index with the same name exists, a `ValueError` or `RuntimeError` will be raised depending on the execution context.
