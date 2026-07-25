@@ -37,9 +37,7 @@ print(f"Filtered count: {filtered_ds.count()}")
 
 # Read with column selection and filtering
 ds_filtered = read_lance(
-    "sample_dataset.lance",
-    columns=["user_id", "name", "score"],
-    filter="score > 75.0"
+    "sample_dataset.lance", columns=["user_id", "name", "score"], filter="score > 75.0"
 )
 print(f"Schema: {ds_filtered.schema()}")
 ```
@@ -51,16 +49,14 @@ print(f"Schema: {ds_filtered.schema()}")
 from lance_ray import add_columns
 import pyarrow as pa
 
+
 def add_computed_column(batch: pa.RecordBatch) -> pa.RecordBatch:
     df = batch.to_pandas()
-    df['computed'] = df['value'] * 2 + df['id']
+    df["computed"] = df["value"] * 2 + df["id"]
     return pa.RecordBatch.from_pandas(df[["computed"]])
 
-add_columns(
-    uri="sample_dataset.lance",
-    transform=add_computed_column,
-    concurrency=4
-)
+
+add_columns(uri="sample_dataset.lance", transform=add_computed_column, concurrency=4)
 ```
 
 ## Using Namespace
@@ -110,7 +106,7 @@ from lance_ray import read_lance, write_lance
 # Initialize Ray
 ray.init()
 
-# Connect to AWS Glue catalog 
+# Connect to AWS Glue catalog
 # using the default account and region in the current AWS environment
 namespace = ln.connect("glue", {})
 
@@ -119,10 +115,10 @@ data = ray.data.range(1000).map(lambda row: {"id": row["id"], "value": row["id"]
 
 # Write to Lance format using metadata catalog
 write_lance(
-    data, 
-    uri="s3://my-bucket/my-table", 
-    namespace=namespace, 
-    table_id=["default", "my_table"]
+    data,
+    uri="s3://my-bucket/my-table",
+    namespace=namespace,
+    table_id=["default", "my_table"],
 )
 
 # Read Lance dataset back using metadata catalog

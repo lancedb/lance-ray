@@ -387,7 +387,7 @@ requires-dist = [
     { name = "more-itertools", marker = "python_full_version < '3.12'", specifier = ">=2.6.0" },
     { name = "packaging" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "pylance", specifier = ">=9.0.0" },
+    { name = "pylance", specifier = ">=10.0.0b5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
@@ -1024,8 +1024,8 @@ wheels = [
 
 [[package]]
 name = "pylance"
-version = "9.0.0"
-source = { registry = "https://pypi.org/simple" }
+version = "10.0.0b5"
+source = { registry = "https://pypi.fury.io/lance-format" }
 dependencies = [
     { name = "lance-namespace" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1033,12 +1033,12 @@ dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/be/45733acd64801991852aac8e658601fd8fc12f76ceb81e57fca690896b90/pylance-9.0.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:8257213501d3298c5b6a344d60938e4bbe4de9f00cd3265371a56d1dc3dd15ca", size = 68377982, upload-time = "2026-07-24T16:53:45.247Z" },
-    { url = "https://files.pythonhosted.org/packages/d0/3e/1ef707cb215cc7268c63ad84a91344ad6313d3984b343eeb19a9b708698e/pylance-9.0.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:804eedfa1fda2e703cca8580c76f0b44a1b849b725a8908c06f8acfca811732f", size = 71844362, upload-time = "2026-07-24T16:56:07.6Z" },
-    { url = "https://files.pythonhosted.org/packages/c8/fb/a499e5c53ddb75c7de44100fd2bb1f7cc735966200d20292eed7af9ef552/pylance-9.0.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0a0b75595e3766c1d5f4c90abdc52337b4de60f1a52d123a4f8c4e5bcbbbfa8f", size = 75663088, upload-time = "2026-07-24T17:10:31.283Z" },
-    { url = "https://files.pythonhosted.org/packages/e9/80/0714e09f64a68dbdf62558955e737a7436df763b9834a6aba506861b5352/pylance-9.0.0-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:d2f69c5c390ae3710c35a429905fe15f769951777fafb1b72a359e035ec121f7", size = 71866858, upload-time = "2026-07-24T16:56:35.937Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/3c/78d3a6d6ca0d843b7c3ac0c30d9cd2cf4635b0c2cabe6ec66583d5bfc1a1/pylance-9.0.0-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:836268a7832d62f3d5ccbe1c3fca239621971d90297bcfff14a70b3cb6842aa8", size = 75642656, upload-time = "2026-07-24T17:13:11.879Z" },
-    { url = "https://files.pythonhosted.org/packages/cf/c1/dc9c9a31e171530ec0add024d922488c046437d32a7087c29e254a7eacc7/pylance-9.0.0-cp310-abi3-win_amd64.whl", hash = "sha256:96441d27a5ed3805300388ccf8f31835cd280c98751f80b6a1a11dcd6808fc43", size = 81668288, upload-time = "2026-07-24T17:05:38.707Z" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_sbbYE/pylance-10.0.0b5-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:a60c172ba0daeced51658caa76dff6ba525309b613328b8411a35d700ed50d77" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_edwAr/pylance-10.0.0b5-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:88b0fe5e4a331a7417f861d705e7e47b13ed28004d860c2aa90ca5c440b413b8" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_1lVxD3/pylance-10.0.0b5-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aa6da6c4056254699ac0ae5f05f33a2cd172b5e01b6845b0f58026f319d117d3" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_jonEs/pylance-10.0.0b5-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:90fc3ec0e61cdb55e9db311a0a9ab18f7be40fe2baab31d671852249fcbbf5d6" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_1Tl244/pylance-10.0.0b5-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:37fb9d05a9c4825b814959cdb01d2cf3c8e6f0e913a45207f32deb6624a373f2" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_MeqKq/pylance-10.0.0b5-cp310-abi3-win_amd64.whl", hash = "sha256:d02eed33d7b8972b13db70849522db303bdd527e5ded8b2dc064700496554b71" },
 ]
 
 [[package]]
