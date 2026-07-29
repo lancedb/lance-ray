@@ -622,9 +622,9 @@ def test_fragment_handlers_pass_block_size_to_dataset_load(monkeypatch):
 
     scalar_handler = index_mod._handle_fragment_index(
         dataset_uri="memory://fake",
-        column="text",
-        index_type="NGRAM",
-        name="text_idx",
+        column="value",
+        index_type="LABEL_LIST",
+        name="value_idx",
         index_uuid="scalar-index",
         replace=False,
         train=True,
