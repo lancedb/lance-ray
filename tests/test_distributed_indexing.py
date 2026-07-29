@@ -115,6 +115,27 @@ def generate_multi_fragment_dataset(tmp_path, num_fragments=4, rows_per_fragment
     return lance.dataset(str(path))
 
 
+def write_three_fragment_dataset(tmp_path, name, table):
+    """Write a 12-row table as three four-row fragments."""
+    path = Path(tmp_path) / name
+    dataset = lance.write_dataset(
+        table,
+        str(path),
+        max_rows_per_file=4,
+        max_rows_per_group=4,
+    )
+    assert len(dataset.get_fragments()) == 3
+    return dataset
+
+
+def assert_scalar_index_segments(dataset, name, index_type, num_segments=3):
+    """Assert that a named scalar index has the expected physical segments."""
+    index = next((idx for idx in dataset.describe_indices() if idx.name == name), None)
+    assert index is not None
+    assert index.index_type == index_type
+    assert len(index.segments) == num_segments
+
+
 def generate_mixed_schema_dataset(
     tmp_path,
     num_rows: int = 200,
@@ -404,7 +425,7 @@ class TestDistributedIndexing:
 
         with pytest.raises(
             ValueError,
-            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID'",
+            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP', 'BLOOMFILTER', 'RTREE'\], not 'INVALID'",
         ):
             lr.create_scalar_index(
                 uri=dataset_uri,
@@ -439,7 +460,8 @@ class TestDistributedIndexing:
                 num_workers=2,
             )
 
-    def test_build_distributed_index_non_string_column(self, temp_dir):
+    @pytest.mark.parametrize("index_type", ["INVERTED", "NGRAM"])
+    def test_build_distributed_index_non_string_column(self, temp_dir, index_type):
         """Test error handling for non-string column."""
         # Create dataset with non-string column
         data = pd.DataFrame(
@@ -457,7 +479,7 @@ class TestDistributedIndexing:
             lr.create_scalar_index(
                 uri=str(path),
                 column="numeric_col",
-                index_type="INVERTED",
+                index_type=index_type,
                 num_workers=2,
             )
 
@@ -925,7 +947,7 @@ class TestDistributedIndexing:
         # Test with invalid index type
         with pytest.raises(
             ValueError,
-            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP'\], not 'INVALID_TYPE'",
+            match=r"Index type must be one of \['BTREE', 'BITMAP', 'LABEL_LIST', 'INVERTED', 'FTS', 'NGRAM', 'ZONEMAP', 'BLOOMFILTER', 'RTREE'\], not 'INVALID_TYPE'",
         ):
             lr.create_scalar_index(
                 uri=ds.uri,
@@ -1316,61 +1338,180 @@ class TestDistributedZoneMapIndexing:
         assert our_index.index_type == "ZoneMap"
 
 
-class TestDistributedBitmapIndexing:
-    """Distributed BITMAP indexing tests."""
+class TestDistributedScalarSegmentIndexes:
+    """Distributed scalar segment index tests."""
 
-    def test_distributed_bitmap_index_matches_baseline(self, temp_dir):
-        """Build a distributed BITMAP index and verify query results."""
-        with_index = generate_multi_fragment_dataset(
-            Path(temp_dir) / "with_bitmap",
-            num_fragments=3,
-            rows_per_fragment=250,
+    @pytest.mark.parametrize(
+        (
+            "index_type",
+            "column",
+            "values",
+            "value_type",
+            "index_name",
+            "expected_type",
+            "filters",
+        ),
+        [
+            pytest.param(
+                "BITMAP",
+                "fragment_id",
+                [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
+                pa.int64(),
+                "fragment_bitmap_idx",
+                "Bitmap",
+                ["fragment_id = 1"],
+                id="bitmap",
+            ),
+            pytest.param(
+                "NGRAM",
+                "text",
+                [
+                    "alpha",
+                    "",
+                    None,
+                    "alphabet",
+                    "beta",
+                    "gamma",
+                    "alpha beta",
+                    None,
+                    "delta",
+                    "",
+                    "alphanumeric",
+                    "omega",
+                ],
+                pa.string(),
+                "text_ngram_idx",
+                "NGram",
+                ["contains(text, 'alpha')"],
+                id="ngram",
+            ),
+            pytest.param(
+                "BLOOMFILTER",
+                "value",
+                [1, 2, None, 4, 5, 6, None, 8, 9, 10, 11, 12],
+                pa.int64(),
+                "value_bloomfilter_idx",
+                "BloomFilter",
+                ["value = 4", "value IN (1, 6, 11)"],
+                id="bloomfilter",
+            ),
+        ],
+    )
+    def test_filter_index_matches_baseline(
+        self,
+        temp_dir,
+        index_type,
+        column,
+        values,
+        value_type,
+        index_name,
+        expected_type,
+        filters,
+    ):
+        """Build three scalar segments and verify indexed filter queries."""
+        table = pa.table(
+            {
+                "id": pa.array(range(12), type=pa.int64()),
+                column: pa.array(values, type=value_type),
+            }
         )
-        without_index = generate_multi_fragment_dataset(
-            Path(temp_dir) / "without_bitmap",
-            num_fragments=3,
-            rows_per_fragment=250,
+        dataset = write_three_fragment_dataset(
+            temp_dir, f"distributed_{index_type.lower()}.lance", table
         )
 
         updated_dataset = lr.create_scalar_index(
-            uri=with_index.uri,
-            column="fragment_id",
-            index_type="BITMAP",
-            name="fragment_bitmap_idx",
+            uri=dataset.uri,
+            column=column,
+            index_type=index_type,
+            name=index_name,
             replace=False,
             num_workers=3,
+            num_segments=3,
         )
+        assert_scalar_index_segments(updated_dataset, index_name, expected_type)
 
-        indices = updated_dataset.describe_indices()
-        our_index = next(
-            (idx for idx in indices if idx.name == "fragment_bitmap_idx"),
-            None,
-        )
-
-        assert our_index is not None, "BITMAP index not found by name"
-        assert our_index.index_type == "Bitmap"
-
-        indexed = updated_dataset.scanner(
-            filter="fragment_id = 1",
-            columns=["id", "fragment_id"],
-        ).to_table()
-        baseline = without_index.scanner(
-            filter="fragment_id = 1",
-            columns=["id", "fragment_id"],
-        ).to_table()
-
-        assert indexed.num_rows == baseline.num_rows
-        assert sorted(indexed.column("id").to_pylist()) == sorted(
-            baseline.column("id").to_pylist()
-        )
+        for filter_expr in filters:
+            indexed = updated_dataset.scanner(
+                filter=filter_expr,
+                columns=["id", column],
+                use_scalar_index=True,
+            ).to_table()
+            baseline = updated_dataset.scanner(
+                filter=filter_expr,
+                columns=["id", column],
+                use_scalar_index=False,
+            ).to_table()
+            assert indexed.sort_by([("id", "ascending")]) == baseline.sort_by(
+                [("id", "ascending")]
+            )
 
         plan = updated_dataset.scanner(
-            filter="fragment_id = 1",
+            filter=filters[0],
             columns=["id"],
             use_scalar_index=True,
         ).explain_plan()
         assert "ScalarIndexQuery" in plan
-        assert "fragment_bitmap_idx" in plan
+        assert index_name in plan
+
+    def test_distributed_rtree_index_matches_baseline(self, temp_dir):
+        """Build three RTree segments and verify an indexed spatial query."""
+        from geoarrow.rust.core import point, points
+
+        coordinates = np.arange(12, dtype=np.float64)
+        point_array = points([coordinates, coordinates])
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field(point("xy")).with_name("point"),
+            ]
+        )
+        table = pa.Table.from_arrays(
+            [pa.array(range(12), type=pa.int64()), point_array],
+            schema=schema,
+        )
+        dataset = write_three_fragment_dataset(
+            temp_dir, "distributed_rtree.lance", table
+        )
+
+        query = """
+            SELECT id
+            FROM dataset
+            WHERE St_Intersects(
+                point,
+                ST_GeomFromText('LINESTRING (2 2, 9 9)')
+            )
+        """
+        baseline = pa.Table.from_batches(
+            dataset.sql(query).build().to_batch_records()
+        ).sort_by([("id", "ascending")])
+
+        updated_dataset = lr.create_scalar_index(
+            uri=dataset.uri,
+            column="point",
+            index_type="RTREE",
+            name="point_rtree_idx",
+            replace=False,
+            num_workers=3,
+            num_segments=3,
+        )
+        assert_scalar_index_segments(updated_dataset, "point_rtree_idx", "RTree")
+
+        indexed = pa.Table.from_batches(
+            updated_dataset.sql(query).build().to_batch_records()
+        ).sort_by([("id", "ascending")])
+        assert indexed == baseline
+
+        explain = (
+            pa.Table.from_batches(
+                updated_dataset.sql("EXPLAIN ANALYZE " + query)
+                .build()
+                .to_batch_records()
+            )
+            .to_pandas()
+            .to_string()
+        )
+        assert "ScalarIndexQuery" in explain
+        assert "point_rtree_idx" in explain
 
 
 class TestOptimizeIndices:

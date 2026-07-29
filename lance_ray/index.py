@@ -213,7 +213,16 @@ def _build_rabitq_model(*, dimension: int, num_bits: int = 1) -> str:
     return indices.build_rq_model(dimension=dimension, num_bits=num_bits)
 
 
-_SCALAR_SEGMENT_INDEX_TYPES = {"BTREE", "BITMAP", "INVERTED", "FTS", "ZONEMAP"}
+_SCALAR_SEGMENT_INDEX_TYPES = {
+    "BTREE",
+    "BITMAP",
+    "INVERTED",
+    "FTS",
+    "NGRAM",
+    "ZONEMAP",
+    "BLOOMFILTER",
+    "RTREE",
+}
 
 
 def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
@@ -416,6 +425,8 @@ def create_scalar_index(
     | Literal["FTS"]
     | Literal["NGRAM"]
     | Literal["ZONEMAP"]
+    | Literal["BLOOMFILTER"]
+    | Literal["RTREE"]
     | IndexConfig,
     table_id: Optional[list[str]] = None,
     name: Optional[str] = None,
@@ -441,7 +452,8 @@ def create_scalar_index(
             workers and the final commit stay on the same Lance branch.
         column: Column name to index.
         index_type: Type of index to build ("BTREE", "BITMAP", "LABEL_LIST",
-            "INVERTED", "FTS", "NGRAM", "ZONEMAP") or IndexConfig object.
+            "INVERTED", "FTS", "NGRAM", "ZONEMAP", "BLOOMFILTER", "RTREE")
+            or IndexConfig object.
         table_id: The table identifier as a list of strings. Must be provided
             together with namespace_impl.
         name: Name of the index (generated if None).
@@ -517,13 +529,24 @@ def create_scalar_index(
             "FTS",
             "NGRAM",
             "ZONEMAP",
+            "BLOOMFILTER",
+            "RTREE",
         ]
         if index_type not in valid_index_types:
             raise ValueError(
                 f"Index type must be one of {valid_index_types}, not '{index_type}'"
             )
 
-        supported_distributed_types = {"INVERTED", "FTS", "BTREE", "BITMAP", "ZONEMAP"}
+        supported_distributed_types = {
+            "INVERTED",
+            "FTS",
+            "BTREE",
+            "BITMAP",
+            "NGRAM",
+            "ZONEMAP",
+            "BLOOMFILTER",
+            "RTREE",
+        }
         if index_type not in supported_distributed_types:
             raise ValueError(
                 "Distributed indexing currently supports "
@@ -578,7 +601,7 @@ def create_scalar_index(
 
     if isinstance(index_type, str):
         match index_type:
-            case "INVERTED" | "FTS":
+            case "INVERTED" | "FTS" | "NGRAM":
                 if not (
                     pa.types.is_string(value_type)
                     or pa.types.is_large_string(value_type)
