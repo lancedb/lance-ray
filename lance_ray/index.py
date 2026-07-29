@@ -5,7 +5,7 @@ import logging
 import math
 import uuid
 from collections.abc import Callable
-from typing import Any, Literal, Optional, TypeAlias, Union
+from typing import Any, Literal, Optional, TypeAlias, Union, get_args
 
 import lance
 import pyarrow as pa
@@ -213,16 +213,19 @@ def _build_rabitq_model(*, dimension: int, num_bits: int = 1) -> str:
     return indices.build_rq_model(dimension=dimension, num_bits=num_bits)
 
 
-_SCALAR_SEGMENT_INDEX_TYPES = {
+_ScalarIndexType: TypeAlias = Literal[
     "BTREE",
     "BITMAP",
+    "LABEL_LIST",
     "INVERTED",
     "FTS",
     "NGRAM",
     "ZONEMAP",
     "BLOOMFILTER",
     "RTREE",
-}
+]
+_SCALAR_INDEX_TYPES = get_args(_ScalarIndexType)
+_SCALAR_SEGMENT_INDEX_TYPES = frozenset(_SCALAR_INDEX_TYPES) - {"LABEL_LIST"}
 
 
 def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
@@ -418,16 +421,7 @@ def create_scalar_index(
     uri: Optional[Union[str, "lance.LanceDataset"]] = None,
     *,
     column: str,
-    index_type: Literal["BTREE"]
-    | Literal["BITMAP"]
-    | Literal["LABEL_LIST"]
-    | Literal["INVERTED"]
-    | Literal["FTS"]
-    | Literal["NGRAM"]
-    | Literal["ZONEMAP"]
-    | Literal["BLOOMFILTER"]
-    | Literal["RTREE"]
-    | IndexConfig,
+    index_type: _ScalarIndexType | IndexConfig,
     table_id: Optional[list[str]] = None,
     name: Optional[str] = None,
     replace: bool = True,
@@ -521,36 +515,16 @@ def create_scalar_index(
         raise ValueError(f"block_size must be positive, got {block_size}")
 
     if isinstance(index_type, str):
-        valid_index_types = [
-            "BTREE",
-            "BITMAP",
-            "LABEL_LIST",
-            "INVERTED",
-            "FTS",
-            "NGRAM",
-            "ZONEMAP",
-            "BLOOMFILTER",
-            "RTREE",
-        ]
-        if index_type not in valid_index_types:
+        if index_type not in _SCALAR_INDEX_TYPES:
             raise ValueError(
-                f"Index type must be one of {valid_index_types}, not '{index_type}'"
+                "Index type must be one of "
+                f"{list(_SCALAR_INDEX_TYPES)}, not '{index_type}'"
             )
 
-        supported_distributed_types = {
-            "INVERTED",
-            "FTS",
-            "BTREE",
-            "BITMAP",
-            "NGRAM",
-            "ZONEMAP",
-            "BLOOMFILTER",
-            "RTREE",
-        }
-        if index_type not in supported_distributed_types:
+        if index_type not in _SCALAR_SEGMENT_INDEX_TYPES:
             raise ValueError(
                 "Distributed indexing currently supports "
-                f"{sorted(supported_distributed_types)} index types, "
+                f"{sorted(_SCALAR_SEGMENT_INDEX_TYPES)} index types, "
                 f"not '{index_type}'"
             )
     elif not isinstance(index_type, IndexConfig):
