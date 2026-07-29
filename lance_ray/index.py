@@ -225,7 +225,7 @@ _ScalarIndexType: TypeAlias = Literal[
     "RTREE",
 ]
 _SCALAR_INDEX_TYPES = get_args(_ScalarIndexType)
-_SCALAR_SEGMENT_INDEX_TYPES = frozenset(_SCALAR_INDEX_TYPES) - {"LABEL_LIST"}
+_SCALAR_SEGMENT_INDEX_TYPES = frozenset(_SCALAR_INDEX_TYPES)
 
 
 def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
@@ -595,6 +595,14 @@ def create_scalar_index(
                     raise TypeError(
                         f"Column {column} must be numeric or string type for "
                         f"{index_type} index, got {value_type}"
+                    )
+            case "LABEL_LIST":
+                if not (
+                    pa.types.is_list(field.type) or pa.types.is_large_list(field.type)
+                ):
+                    raise TypeError(
+                        f"Column {column} must be list or large list type for "
+                        f"LABEL_LIST index, got {field.type}"
                     )
             case _:
                 # For other index types, skip strict validation to maintain compatibility
