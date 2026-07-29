@@ -1517,20 +1517,29 @@ class TestDistributedScalarSegmentIndexes:
 class TestDistributedLabelListIndexing:
     """Distributed LABEL_LIST indexing tests."""
 
-    def test_distributed_large_list_index_matches_baseline(self, temp_dir):
-        """Build one segment per fragment and verify a list-membership query."""
+    def test_distributed_large_list_index_preserves_nullable_query_semantics(
+        self, temp_dir
+    ):
+        """Build one segment per fragment and preserve nullable list semantics."""
         rows_per_fragment = 8
         num_fragments = 3
         num_rows = rows_per_fragment * num_fragments
+        labels_per_fragment = [
+            ["distributed", "shared"],
+            ["other", None],
+            None,
+            [],
+            ["distributed"],
+            ["shared", "other"],
+            [None],
+            ["other"],
+        ]
         dataset = lance.write_dataset(
             pa.table(
                 {
                     "id": pa.array(range(num_rows), type=pa.int32()),
                     "labels": pa.array(
-                        [
-                            ["distributed"] if row_id % 2 == 0 else ["other"]
-                            for row_id in range(num_rows)
-                        ],
+                        labels_per_fragment * num_fragments,
                         type=pa.large_list(pa.string()),
                     ),
                 }
@@ -1572,6 +1581,7 @@ class TestDistributedLabelListIndexing:
         ).to_table()
 
         assert indexed.equals(baseline)
+        assert indexed.column("id").to_pylist() == [0, 4, 8, 12, 16, 20]
         plan = indexed_dataset.scanner(
             filter=filter_expr,
             columns=["id"],
