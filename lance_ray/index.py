@@ -596,17 +596,17 @@ def create_scalar_index(
                         f"Column {column} must be numeric or string type for "
                         f"{index_type} index, got {value_type}"
                     )
+            case "LABEL_LIST":
+                if not (
+                    pa.types.is_list(field.type) or pa.types.is_large_list(field.type)
+                ):
+                    raise TypeError(
+                        f"Column {column} must be list or large list type for "
+                        f"LABEL_LIST index, got {field.type}"
+                    )
             case _:
                 # For other index types, skip strict validation to maintain compatibility
                 pass
-
-    if _scalar_index_type_name(index_type) == "LABEL_LIST" and not (
-        pa.types.is_list(field.type) or pa.types.is_large_list(field.type)
-    ):
-        raise TypeError(
-            f"Column {column} must be list or large list type for "
-            f"LABEL_LIST index, got {field.type}"
-        )
 
     use_segment_workflow = (
         _scalar_index_type_name(index_type) in _SCALAR_SEGMENT_INDEX_TYPES

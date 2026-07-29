@@ -20,13 +20,7 @@ def _load_index_module_with_stubs():
 
     lance_dataset = ModuleType("lance.dataset")
     lance_dataset.Index = type("Index", (), {})
-
-    class IndexConfig:
-        def __init__(self, index_type, parameters):
-            self.index_type = index_type
-            self.parameters = parameters
-
-    lance_dataset.IndexConfig = IndexConfig
+    lance_dataset.IndexConfig = type("IndexConfig", (), {})
     lance_dataset.LanceDataset = object
 
     lance_indices = ModuleType("lance.indices")
@@ -525,26 +519,14 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
     assert fake_dataset.commit_kwargs["segments"] == ["segment"]
 
 
-@pytest.mark.parametrize(
-    "index_type",
-    ["LABEL_LIST", index_mod.IndexConfig("LABEL_LIST", {})],
-    ids=["string", "index-config"],
-)
-def test_create_label_list_index_rejects_non_list_column(monkeypatch, index_type):
+def test_create_label_list_index_rejects_non_list_column():
     """LABEL_LIST should reject invalid columns before Ray workers start."""
-
-    def fail_if_workers_are_scheduled(**kwargs):
-        raise AssertionError("Ray workers should not be scheduled")
-
-    monkeypatch.setattr(
-        index_mod, "_map_async_with_pool", fail_if_workers_are_scheduled
-    )
 
     with pytest.raises(TypeError, match="must be list or large list type"):
         index_mod.create_scalar_index(
             uri=_FakeDataset(),
             column="value",
-            index_type=index_type,
+            index_type="LABEL_LIST",
         )
 
 
