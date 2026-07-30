@@ -1395,6 +1395,29 @@ class TestDistributedScalarSegmentIndexes:
                 ["value = 4", "value IN (1, 6, 11)"],
                 id="bloomfilter",
             ),
+            pytest.param(
+                "LABEL_LIST",
+                "labels",
+                [
+                    ["distributed", "shared"],
+                    ["other", None],
+                    None,
+                    [],
+                    ["distributed"],
+                    ["shared", "other"],
+                    [None],
+                    ["other"],
+                    ["distributed", "shared"],
+                    ["other", None],
+                    None,
+                    [],
+                ],
+                pa.large_list(pa.string()),
+                "labels_idx",
+                "LabelList",
+                ["array_has_any(labels, ['distributed'])"],
+                id="label-list",
+            ),
         ],
     )
     def test_filter_index_matches_baseline(
@@ -1512,83 +1535,6 @@ class TestDistributedScalarSegmentIndexes:
         )
         assert "ScalarIndexQuery" in explain
         assert "point_rtree_idx" in explain
-
-
-class TestDistributedLabelListIndexing:
-    """Distributed LABEL_LIST indexing tests."""
-
-    def test_distributed_large_list_index_preserves_nullable_query_semantics(
-        self, temp_dir
-    ):
-        """Build one segment per fragment and preserve nullable list semantics."""
-        rows_per_fragment = 8
-        num_fragments = 3
-        num_rows = rows_per_fragment * num_fragments
-        labels_per_fragment = [
-            ["distributed", "shared"],
-            ["other", None],
-            None,
-            [],
-            ["distributed"],
-            ["shared", "other"],
-            [None],
-            ["other"],
-        ]
-        dataset = lance.write_dataset(
-            pa.table(
-                {
-                    "id": pa.array(range(num_rows), type=pa.int32()),
-                    "labels": pa.array(
-                        labels_per_fragment * num_fragments,
-                        type=pa.large_list(pa.string()),
-                    ),
-                }
-            ),
-            str(Path(temp_dir) / "distributed_label_list.lance"),
-            max_rows_per_file=rows_per_fragment,
-        )
-        assert len(dataset.get_fragments()) == num_fragments
-
-        index_name = "labels_idx"
-        indexed_dataset = lr.create_scalar_index(
-            uri=dataset.uri,
-            column="labels",
-            index_type="LABEL_LIST",
-            name=index_name,
-            replace=False,
-            num_workers=num_fragments,
-            num_segments=num_fragments,
-        )
-
-        index = next(
-            index
-            for index in indexed_dataset.describe_indices()
-            if index.name == index_name
-        )
-        assert index.index_type == "LabelList"
-        assert len(index.segments) == num_fragments
-
-        filter_expr = "array_has_any(labels, ['distributed'])"
-        indexed = indexed_dataset.scanner(
-            filter=filter_expr,
-            columns=["id", "labels"],
-            use_scalar_index=True,
-        ).to_table()
-        baseline = indexed_dataset.scanner(
-            filter=filter_expr,
-            columns=["id", "labels"],
-            use_scalar_index=False,
-        ).to_table()
-
-        assert indexed.equals(baseline)
-        assert indexed.column("id").to_pylist() == [0, 4, 8, 12, 16, 20]
-        plan = indexed_dataset.scanner(
-            filter=filter_expr,
-            columns=["id"],
-            use_scalar_index=True,
-        ).explain_plan()
-        assert "ScalarIndexQuery" in plan
-        assert index_name in plan
 
 
 class TestOptimizeIndices:

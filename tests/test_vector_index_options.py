@@ -449,19 +449,19 @@ def test_create_index_rejects_invalid_num_segments(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "index_type",
+    ("index_type", "column"),
     [
-        "BTREE",
-        "BITMAP",
-        "INVERTED",
-        "FTS",
-        "NGRAM",
-        "BLOOMFILTER",
-        "RTREE",
-        "LABEL_LIST",
+        ("BTREE", "value"),
+        ("BITMAP", "value"),
+        ("INVERTED", "text"),
+        ("FTS", "text"),
+        ("NGRAM", "text"),
+        ("BLOOMFILTER", "value"),
+        ("RTREE", "value"),
+        ("LABEL_LIST", "labels"),
     ],
 )
-def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
+def test_create_scalar_index_uses_segment_path(monkeypatch, index_type, column):
     """Migrated scalar indexes should use Lance's segment workflow."""
 
     captured = {"loads": []}
@@ -498,12 +498,6 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
     )
     monkeypatch.setattr(index_mod, "_map_async_with_pool", fake_map_async_with_pool)
 
-    if index_type in {"INVERTED", "FTS", "NGRAM"}:
-        column = "text"
-    elif index_type == "LABEL_LIST":
-        column = "labels"
-    else:
-        column = "value"
     updated_dataset = index_mod.create_scalar_index(
         uri="memory://fake",
         column=column,
