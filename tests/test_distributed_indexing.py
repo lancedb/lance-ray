@@ -583,7 +583,7 @@ class TestDistributedIndexing:
         indices = {idx.name: idx for idx in updated_dataset.describe_indices()}
         assert indices["nested_text_idx"].field_names == ["meta.text"]
         assert indices["literal_dot_text_idx"].field_names == ["meta.`a.b`"]
-        assert indices["hyphen_user_id_idx"].field_names == ["`meta-data`.`user-id`"]
+        assert indices["hyphen_user_id_idx"].field_names == ["meta-data.user-id"]
 
         nested_results = updated_dataset.scanner(
             full_text_query="nestedthree",
