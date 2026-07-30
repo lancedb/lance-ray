@@ -7,7 +7,13 @@ Lance-Ray provides distributed index building functionality that leverages Ray's
 
 ### Scalar Indexing
 
-`create_scalar_index()` - Distributedly create scalar index using ray. Currently only Inverted/FTS/BTREE/BITMAP/ZONEMAP are supported. Will add more index type support in the future.
+`create_scalar_index()` - Distributedly create scalar index using ray. Currently only Inverted/FTS/BTREE/BITMAP/NGRAM/ZONEMAP/BLOOMFILTER/RTREE are supported. Will add more index type support in the future.
+
+To construct GeoArrow data for an RTREE index, install the PyLance geo extra:
+
+```shell
+pip install "pylance[geo]"
+```
 
 #### How It Works
 The `create_scalar_index` function allows you to create scalar indices for Lance datasets using the Ray distributed computing framework. This function distributes the index building process across multiple Ray worker nodes, with each node responsible for creating uncommitted index segments for a subset of dataset fragments. These segments are then committed as a single index.
@@ -27,6 +33,8 @@ def create_scalar_index(
         Literal["FTS"],
         Literal["NGRAM"],
         Literal["ZONEMAP"],
+        Literal["BLOOMFILTER"],
+        Literal["RTREE"],
         IndexConfig,
     ],
     table_id: Optional[list[str]] = None,
@@ -53,7 +61,7 @@ def create_scalar_index(
 |-----------|------|-------------|
 | `uri` | `str`, optional | The URI of the Lance dataset. Either `uri` OR (`namespace_impl` + `table_id`) must be provided. |
 | `column` | `str` | Column name to index |
-| `index_type` | `str` or `IndexConfig` | Index type, can be `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"LABEL_LIST"`, `"NGRAM"`, `"ZONEMAP"`, or `IndexConfig` object |
+| `index_type` | `str` or `IndexConfig` | Index type, can be `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"LABEL_LIST"`, `"NGRAM"`, `"ZONEMAP"`, `"BLOOMFILTER"`, `"RTREE"`, or `IndexConfig` object |
 | `table_id` | `list[str]`, optional | The table identifier as a list of strings. |
 | `name` | `str`, optional | Index name, auto-generated if not provided |
 | `replace` | `bool`, optional | Whether to replace existing index with the same name, default is `True` |
@@ -69,7 +77,7 @@ def create_scalar_index(
 | `ray_remote_args` | `Dict[str, Any]`, optional | Ray task options (e.g., `num_cpus`, `resources`) |
 | `**kwargs` | `Any` | Additional arguments passed to `create_scalar_index` |
 
-**Note:** For distributed scalar indexing, currently only `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"` and `"ZONEMAP"` index types are supported.
+**Note:** For distributed scalar indexing, currently only `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"NGRAM"`, `"ZONEMAP"`, `"BLOOMFILTER"` and `"RTREE"` index types are supported.
 
 #### Return Value
 
