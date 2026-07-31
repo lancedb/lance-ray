@@ -284,7 +284,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
@@ -501,7 +501,7 @@ requires-dist = [
     { name = "more-itertools", marker = "python_full_version < '3.12'", specifier = ">=2.6.0" },
     { name = "packaging" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "pylance", specifier = ">=10.0.0b5" },
+    { name = "pylance", specifier = ">=10.0.0rc2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
@@ -1138,7 +1138,7 @@ wheels = [
 
 [[package]]
 name = "pylance"
-version = "10.0.0b6"
+version = "10.0.0rc2"
 source = { registry = "https://pypi.fury.io/lance-format" }
 dependencies = [
     { name = "lance-namespace" },
@@ -1147,12 +1147,10 @@ dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://pypi.fury.io/lance-format/-/ver_1S1urO/pylance-10.0.0b6-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:0529e466b3545eedef1dc55acfd41014f9a051eccc129b1688045dbe142e45a7" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_2h9KXm/pylance-10.0.0b6-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f741e3ae2b8c928675477ca7e012a74be280009178f22b80c2ec8ee8fbc5b32e" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_PFSbW/pylance-10.0.0b6-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c623e0ae1220d769827b4b0aa64f1bcd00cb18e4a81ecf8f7617bc00e359fbe6" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_vww2D/pylance-10.0.0b6-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:dfb232cc641f06799659c1a9d57969e1f920be8f9208ad2c29fce8edf31b8f16" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_ECyWk/pylance-10.0.0b6-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:b683832edd828691bbbe55d97c36d0859ea9734c673219c12c740f817f9442fa" },
-    { url = "https://pypi.fury.io/lance-format/-/ver_ub84x/pylance-10.0.0b6-cp310-abi3-win_amd64.whl", hash = "sha256:831ee58fd98c1d1306e93b874878bc0d5da320e7e04f5b60d94535816b46b490" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_2bp6d4/pylance-10.0.0rc2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:dd4573c145c86ed3f0e50863971152b57dcea7386085613b729d8db7b5c3e1ff" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_1M9acK/pylance-10.0.0rc2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bacb22385664f86b2be4ce68207258518386ba6ef842a8b68a63f8a25407bfba" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_1q16YC/pylance-10.0.0rc2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2a9b99f059b5128c3510af6ed350dbbbdca08430d08ef8466cabbb5ea6daea43" },
+    { url = "https://pypi.fury.io/lance-format/-/ver_wRV3b/pylance-10.0.0rc2-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1d7cea363c493703e85614bc326a5fb2e5cc3d9416befce1216fb972d5d45ec8" },
 ]
 
 [[package]]
@@ -1176,7 +1174,7 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 dependencies = [
-    { name = "certifi", marker = "python_full_version < '3.11'" },
+    { name = "certifi" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/67/10/a8480ea27ea4bbe896c168808854d00f2a9b49f95c0319ddcbba693c8a90/pyproj-3.7.1.tar.gz", hash = "sha256:60d72facd7b6b79853f19744779abcd3f804c4e0d4fa8815469db20c9f640a47", size = 226339, upload-time = "2025-02-16T04:28:46.621Z" }
 wheels = [
@@ -1223,7 +1221,7 @@ resolution-markers = [
     "python_full_version == '3.11.*'",
 ]
 dependencies = [
-    { name = "certifi", marker = "python_full_version >= '3.11'" },
+    { name = "certifi" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/04/90/67bd7260b4ea9b8b20b4f58afef6c223ecb3abf368eb4ec5bc2cdef81b49/pyproj-3.7.2.tar.gz", hash = "sha256:39a0cf1ecc7e282d1d30f36594ebd55c9fae1fda8a2622cee5d100430628f88c", size = 226279, upload-time = "2025-08-14T12:05:42.18Z" }
 wheels = [
