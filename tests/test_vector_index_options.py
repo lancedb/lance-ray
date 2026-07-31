@@ -69,7 +69,7 @@ class _FakeLanceField:
 
 class _FakeLanceSchema:
     def field(self, column):
-        if column not in {"value", "text"}:
+        if column not in {"value", "text", "labels"}:
             raise KeyError(column)
         return _FakeLanceField()
 
@@ -82,6 +82,8 @@ class _FakeSchema:
             return _FakeField(column, index_mod.pa.int64())
         if column == "text":
             return _FakeField(column, index_mod.pa.string())
+        if column == "labels":
+            return _FakeField(column, index_mod.pa.list_(index_mod.pa.string()))
         else:
             raise KeyError(column)
 
@@ -91,6 +93,7 @@ class _FakeSchema:
                 _FakeField("vector"),
                 _FakeField("value", index_mod.pa.int64()),
                 _FakeField("text", index_mod.pa.string()),
+                _FakeField("labels", index_mod.pa.list_(index_mod.pa.string())),
             ]
         )
 
@@ -446,10 +449,19 @@ def test_create_index_rejects_invalid_num_segments(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "index_type",
-    ["BTREE", "BITMAP", "INVERTED", "FTS", "NGRAM", "BLOOMFILTER", "RTREE"],
+    ("index_type", "column"),
+    [
+        ("BTREE", "value"),
+        ("BITMAP", "value"),
+        ("INVERTED", "text"),
+        ("FTS", "text"),
+        ("NGRAM", "text"),
+        ("BLOOMFILTER", "value"),
+        ("RTREE", "value"),
+        ("LABEL_LIST", "labels"),
+    ],
 )
-def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
+def test_create_scalar_index_uses_segment_path(monkeypatch, index_type, column):
     """Migrated scalar indexes should use Lance's segment workflow."""
 
     captured = {"loads": []}
@@ -486,7 +498,6 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
     )
     monkeypatch.setattr(index_mod, "_map_async_with_pool", fake_map_async_with_pool)
 
-    column = "text" if index_type in {"INVERTED", "FTS", "NGRAM"} else "value"
     updated_dataset = index_mod.create_scalar_index(
         uri="memory://fake",
         column=column,
@@ -500,6 +511,17 @@ def test_create_scalar_index_uses_segment_path(monkeypatch, index_type):
     assert captured["fragment_handler_kwargs"]["index_type"] == index_type
     assert captured["fragment_handler_kwargs"]["block_size"] == 4096
     assert fake_dataset.commit_kwargs["segments"] == ["segment"]
+
+
+def test_create_label_list_index_rejects_non_list_column():
+    """LABEL_LIST should reject invalid columns before Ray workers start."""
+
+    with pytest.raises(TypeError, match="must be list or large list type"):
+        index_mod.create_scalar_index(
+            uri=_FakeDataset(),
+            column="value",
+            index_type="LABEL_LIST",
+        )
 
 
 def test_create_index_passes_block_size_to_loads_and_handler(monkeypatch):

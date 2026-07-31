@@ -7,7 +7,7 @@ Lance-Ray provides distributed index building functionality that leverages Ray's
 
 ### Scalar Indexing
 
-`create_scalar_index()` - Distributedly create scalar index using ray. Currently only Inverted/FTS/BTREE/BITMAP/NGRAM/ZONEMAP/BLOOMFILTER/RTREE are supported. Will add more index type support in the future.
+`create_scalar_index()` - Distributedly create scalar index using ray. Currently Inverted/FTS/BTREE/BITMAP/LABEL_LIST/NGRAM/ZONEMAP/BLOOMFILTER/RTREE are supported. Will add more index type support in the future.
 
 To construct GeoArrow data for an RTREE index, install the PyLance geo extra:
 
@@ -77,7 +77,7 @@ def create_scalar_index(
 | `ray_remote_args` | `Dict[str, Any]`, optional | Ray task options (e.g., `num_cpus`, `resources`) |
 | `**kwargs` | `Any` | Additional arguments passed to `create_scalar_index` |
 
-**Note:** For distributed scalar indexing, currently only `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"NGRAM"`, `"ZONEMAP"`, `"BLOOMFILTER"` and `"RTREE"` index types are supported.
+**Note:** For distributed scalar indexing, currently `"INVERTED"`, `"FTS"`, `"BTREE"`, `"BITMAP"`, `"LABEL_LIST"`, `"NGRAM"`, `"ZONEMAP"`, `"BLOOMFILTER"`, and `"RTREE"` index types are supported.
 
 #### Return Value
 
