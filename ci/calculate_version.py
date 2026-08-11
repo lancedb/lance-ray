@@ -10,7 +10,9 @@ import sys
 from packaging import version
 
 
-def calculate_next_version(current_version, release_type, channel):
+def calculate_next_version(
+    current_version: str, release_type: str, channel: str
+) -> str:
     """Calculate the next version based on release type and channel"""
 
     # Parse current version
@@ -49,7 +51,7 @@ def calculate_next_version(current_version, release_type, channel):
     return new_version
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Calculate next version")
     parser.add_argument("--current", required=True, help="Current version")
     parser.add_argument(
