@@ -2,7 +2,10 @@ import os
 import sys
 from collections.abc import Iterable, Sequence
 from functools import lru_cache
-from typing import Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
+
+if TYPE_CHECKING:
+    from lance_namespace import LanceNamespace
 
 T = TypeVar("T")
 
@@ -155,7 +158,7 @@ def validate_uri_or_namespace(
 def _get_cached_namespace(
     namespace_impl: str,
     namespace_properties_tuple: Optional[tuple[tuple[str, str], ...]],
-):
+) -> "LanceNamespace":
     """Internal cached namespace loader. Use get_or_create_namespace() instead."""
     import lance_namespace as ln
 
@@ -168,7 +171,7 @@ def _get_cached_namespace(
 def get_or_create_namespace(
     namespace_impl: Optional[str],
     namespace_properties: Optional[dict[str, str]],
-):
+) -> Optional["LanceNamespace"]:
     """Get or create a cached namespace client.
 
     This function loads a namespace client from cache or creates a new one.
@@ -250,8 +253,12 @@ def _create_storage_options_provider(
     namespace_impl: Optional[str],
     namespace_properties: Optional[dict[str, str]],
     table_id: Optional[list[str]],
-):
-    """Create a LanceNamespaceStorageOptionsProvider (pylance 4.x only)."""
+) -> Optional[Any]:
+    """Create a LanceNamespaceStorageOptionsProvider (pylance 4.x only).
+
+    Returns ``Any`` because ``LanceNamespaceStorageOptionsProvider`` no longer
+    exists on pylance 5.0+, so it cannot be named as a static type here.
+    """
     if not has_namespace_params(namespace_impl, table_id):
         return None
 
