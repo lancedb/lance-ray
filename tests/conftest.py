@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Iterator
 
 import pytest
 import ray
@@ -21,7 +22,7 @@ from _ray_test_support import (  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
-def ray_context():
+def ray_context() -> Iterator[None]:
     """Initialize Ray once per pytest session.
 
     Defined in conftest.py so that running multiple test files concurrently

@@ -7,6 +7,7 @@ inside Ray worker processes via ``runtime_env.worker_process_setup_hook``.
 from __future__ import annotations
 
 import threading
+from typing import Any, Optional
 
 
 def patch_memory_profiler() -> None:
@@ -24,7 +25,7 @@ def patch_memory_profiler() -> None:
 
     original_init = ray_data_util.MemoryProfiler.__init__
 
-    def safe_init(self, poll_interval_s):
+    def safe_init(self: Any, poll_interval_s: Optional[float]) -> None:
         self._poll_interval_s = poll_interval_s
         try:
             original_init(self, poll_interval_s)
@@ -35,10 +36,15 @@ def patch_memory_profiler() -> None:
             self._uss_poll_thread = None
             self._stop_uss_poll_event = None
 
-    ray_data_util.MemoryProfiler.__init__ = safe_init
-
+    # Monkey-patching methods is the point of this module, so the
+    # ``method-assign`` guard does not apply here.
+    ray_data_util.MemoryProfiler.__init__ = safe_init  # type: ignore[method-assign]
     if hasattr(ray_data_util.MemoryProfiler, "_can_estimate_uss"):
-        ray_data_util.MemoryProfiler._can_estimate_uss = lambda self: False
+
+        def _cannot_estimate_uss(self: Any) -> bool:
+            return False
+
+        ray_data_util.MemoryProfiler._can_estimate_uss = _cannot_estimate_uss  # type: ignore[method-assign,assignment]
 
 
 def patch_psutil_for_containers() -> None:
@@ -62,7 +68,7 @@ def patch_psutil_for_containers() -> None:
 
     original_fn = uv_runtime_env_hook._get_uv_run_cmdline
 
-    def _safe_get_uv_run_cmdline():
+    def _safe_get_uv_run_cmdline() -> Any:
         try:
             return original_fn()
         except Exception:
@@ -91,20 +97,20 @@ def _patch_worker_log_offset() -> None:
     _orig_out = Worker.get_current_out_offset
     _orig_err = Worker.get_current_err_offset
 
-    def _safe_out_offset(self) -> int:
+    def _safe_out_offset(self: Any) -> int:
         try:
             return _orig_out(self)
         except FileNotFoundError:
             return 0
 
-    def _safe_err_offset(self) -> int:
+    def _safe_err_offset(self: Any) -> int:
         try:
             return _orig_err(self)
         except FileNotFoundError:
             return 0
 
-    Worker.get_current_out_offset = _safe_out_offset
-    Worker.get_current_err_offset = _safe_err_offset
+    Worker.get_current_out_offset = _safe_out_offset  # type: ignore[method-assign]
+    Worker.get_current_err_offset = _safe_err_offset  # type: ignore[method-assign]
 
 
 def setup_worker() -> None:
