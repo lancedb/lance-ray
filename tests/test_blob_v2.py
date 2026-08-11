@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import sys
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -72,7 +73,7 @@ def _build_blob_v2_table(
     )
 
     sig = inspect.signature(Blob.from_uri)
-    blob_kwargs: dict[str, object] = {}
+    blob_kwargs: dict[str, Any] = {}
     if "position" in sig.parameters and "size" in sig.parameters:
         blob_kwargs = {"position": 0, "size": len(external_payload)}
 
@@ -122,7 +123,7 @@ def _build_external_only_blob_v2_table(
     )
 
     sig = inspect.signature(Blob.from_uri)
-    blob_kwargs: dict[str, object] = {}
+    blob_kwargs: dict[str, Any] = {}
     if "position" in sig.parameters and "size" in sig.parameters:
         blob_kwargs = {"position": 0, "size": len(payload)}
 
@@ -288,7 +289,7 @@ def test_blob_v2_external_blob_ingest_write_lance(
     )
     path = tmp_path / f"blob_v2_external_ingest_{stream}.lance"
 
-    stream_kwargs = {"stream": stream}
+    stream_kwargs: dict[str, Any] = {"stream": stream}
     if stream:
         stream_kwargs["batch_size"] = 1
 
@@ -358,7 +359,7 @@ def test_blob_v2_reference_multi_base_all_lance_ray_paths(tmp_path: Path) -> Non
     table, inline_payload, external_payload, external_base, _ = _build_blob_v2_table(
         tmp_path
     )
-    base_store_params = {external_base.as_uri(): {}}
+    base_store_params: dict[str, dict[str, Any]] = {external_base.as_uri(): {}}
     initial_bases = _initial_bases(external_base)
 
     # Non-streaming write_lance + full/projection/filter/fragment reads.
@@ -510,7 +511,10 @@ def test_blob_v2_create_with_initial_bases_and_target_bases(tmp_path: Path) -> N
         _build_multi_base_blob_v2_table(tmp_path)
     )
     initial_bases = _multi_initial_bases(base_a, base_b)
-    base_store_params = {base_a.as_uri(): {}, base_b.as_uri(): {}}
+    base_store_params: dict[str, dict[str, Any]] = {
+        base_a.as_uri(): {},
+        base_b.as_uri(): {},
+    }
 
     path = tmp_path / "blob_v2_create_target_bases.lance"
 
@@ -572,7 +576,10 @@ def test_blob_v2_target_bases_multi_base_routing(tmp_path: Path) -> None:
         _build_multi_base_blob_v2_table(tmp_path)
     )
     initial_bases = _multi_initial_bases(base_a, base_b)
-    base_store_params = {base_a.as_uri(): {}, base_b.as_uri(): {}}
+    base_store_params: dict[str, dict[str, Any]] = {
+        base_a.as_uri(): {},
+        base_b.as_uri(): {},
+    }
 
     path = tmp_path / "blob_v2_multi_base_routing.lance"
 
@@ -679,7 +686,10 @@ def test_blob_v2_append_with_target_bases_stream(tmp_path: Path) -> None:
         _build_multi_base_blob_v2_table(tmp_path)
     )
     initial_bases = _multi_initial_bases(base_a, base_b)
-    base_store_params = {base_a.as_uri(): {}, base_b.as_uri(): {}}
+    base_store_params: dict[str, dict[str, Any]] = {
+        base_a.as_uri(): {},
+        base_b.as_uri(): {},
+    }
 
     path = tmp_path / "blob_v2_target_bases_stream.lance"
 
