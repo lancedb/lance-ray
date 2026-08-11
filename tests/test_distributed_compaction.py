@@ -1,7 +1,9 @@
 """Test cases for lance_ray.compaction module."""
 
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import lance
@@ -14,13 +16,24 @@ import pandas as pd
 
 
 @pytest.fixture
-def temp_dir():
+def temp_dir() -> Iterator[str]:
     """Create a temporary directory for testing."""
     with tempfile.TemporaryDirectory() as temp_dir:
         yield temp_dir
 
 
-def create_dataset_with_fragments(path, fragment_data):
+def _compaction_options(**options: Any) -> CompactionOptions:
+    """Build a partial ``CompactionOptions``.
+
+    pylance declares the TypedDict as total even though every key is optional
+    at runtime, so a partial literal cannot be spelled out directly.
+    """
+    return cast(CompactionOptions, options)
+
+
+def create_dataset_with_fragments(
+    path: str | Path, fragment_data: list[pd.DataFrame]
+) -> lance.LanceDataset:
     """
     Create a Lance dataset with multiple fragments.
 
@@ -55,7 +68,7 @@ def create_dataset_with_fragments(path, fragment_data):
 class TestDistributedCompaction:
     """Test cases for distributed compaction functionality."""
 
-    def test_basic_compaction(self, temp_dir):
+    def test_basic_compaction(self, temp_dir: str) -> None:
         """
         Test basic compaction that merges two fragments into one.
         """
@@ -82,7 +95,7 @@ class TestDistributedCompaction:
         assert dataset.count_rows() == 20, "Should have 20 total rows"
 
         # Configure compaction to merge fragments (target 100 rows per fragment)
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -95,6 +108,7 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction metrics
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
@@ -106,7 +120,7 @@ class TestDistributedCompaction:
         assert fragments[0].count_rows() == 20, "Fragment should have 20 rows"
         assert dataset.count_rows() == 20, "Should still have 20 total rows"
 
-    def test_compaction_without_options(self, temp_dir):
+    def test_compaction_without_options(self, temp_dir: str) -> None:
         """
         Test that compact_files works when compaction_options is omitted.
 
@@ -125,11 +139,12 @@ class TestDistributedCompaction:
         metrics = lr.compact_files(uri=str(dataset_path), num_workers=1)
 
         assert metrics is not None, "Two small fragments should be compacted"
+        assert metrics is not None
         assert metrics.fragments_removed == 2
         dataset = lance.dataset(str(dataset_path))
         assert dataset.count_rows() == 20
 
-    def test_deletion_compaction(self, temp_dir):
+    def test_deletion_compaction(self, temp_dir: str) -> None:
         """
         Test compaction that materializes deletions.
         """
@@ -167,7 +182,7 @@ class TestDistributedCompaction:
         assert dataset.count_rows() == 11, "Should have 11 rows after deletion"
 
         # Configure compaction to materialize deletions
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             materialize_deletions=True,
             materialize_deletions_threshold=0.5,  # 50% threshold
             num_threads=1,
@@ -181,6 +196,7 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction metrics
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
@@ -192,7 +208,7 @@ class TestDistributedCompaction:
         assert fragments[0].count_rows() == 11, "Fragment should have 11 rows"
         assert dataset.count_rows() == 11, "Should have 11 total rows"
 
-    def test_compaction_with_many_fragments(self, temp_dir):
+    def test_compaction_with_many_fragments(self, temp_dir: str) -> None:
         """Test compaction with many small fragments."""
         dataset_path = Path(temp_dir) / "test_many_fragments_compaction"
 
@@ -214,7 +230,7 @@ class TestDistributedCompaction:
         assert dataset.count_rows() == 5000, "Should have 5000 total rows"
 
         # Configure compaction to merge small fragments
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=20,
             num_threads=1,
         )
@@ -227,6 +243,7 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction happened
+        assert metrics is not None
         assert metrics.fragments_removed == 1000, "Should remove all fragments"
         assert metrics.fragments_added == 250, (
             "Should add 250 fragments as target_rows_per_fragment = 20"
@@ -236,7 +253,7 @@ class TestDistributedCompaction:
         dataset = lance.dataset(str(dataset_path))
         assert dataset.count_rows() == 5000, "Should still have 5000 total rows"
 
-    def test_compaction_no_work_needed(self, temp_dir):
+    def test_compaction_no_work_needed(self, temp_dir: str) -> None:
         """Test compaction when no work is needed."""
         dataset_path = Path(temp_dir) / "test_no_compaction_needed"
 
@@ -254,7 +271,7 @@ class TestDistributedCompaction:
         assert len(dataset.get_fragments()) == 1, "Should start with 1 fragment"
 
         # Configure compaction with target that matches current state
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -269,7 +286,7 @@ class TestDistributedCompaction:
         # Should be no-op (returns None when no work is needed)
         assert metrics is None, "Should return None when no compaction work is needed"
 
-    def test_compaction_with_ray_remote_args(self, temp_dir):
+    def test_compaction_with_ray_remote_args(self, temp_dir: str) -> None:
         """Test compaction with Ray remote args."""
         dataset_path = Path(temp_dir) / "test_ray_args_compaction"
 
@@ -290,7 +307,7 @@ class TestDistributedCompaction:
         create_dataset_with_fragments(dataset_path, [fragment1, fragment2])
 
         # Configure compaction
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -304,10 +321,11 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction worked
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
-    def test_compaction_with_storage_options(self, temp_dir):
+    def test_compaction_with_storage_options(self, temp_dir: str) -> None:
         """Test compaction with storage options."""
         dataset_path = Path(temp_dir) / "test_storage_options_compaction"
 
@@ -328,7 +346,7 @@ class TestDistributedCompaction:
         create_dataset_with_fragments(dataset_path, [fragment1, fragment2])
 
         # Configure compaction
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -342,10 +360,11 @@ class TestDistributedCompaction:
         )
 
         # Verify compaction worked
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
-    def test_compaction_auto_adjust_workers(self, temp_dir):
+    def test_compaction_auto_adjust_workers(self, temp_dir: str) -> None:
         """Test that num_workers is automatically adjusted if it exceeds task count."""
         dataset_path = Path(temp_dir) / "test_auto_adjust_workers"
 
@@ -366,7 +385,7 @@ class TestDistributedCompaction:
         create_dataset_with_fragments(dataset_path, [fragment1, fragment2])
 
         # Configure compaction
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -379,10 +398,11 @@ class TestDistributedCompaction:
         )
 
         # Should still work and create the compaction
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
-    def test_compaction_preserves_data(self, temp_dir):
+    def test_compaction_preserves_data(self, temp_dir: str) -> None:
         """Test that compaction preserves all data correctly."""
         dataset_path = Path(temp_dir) / "test_data_preservation"
 
@@ -410,7 +430,7 @@ class TestDistributedCompaction:
         )
 
         # Configure and execute compaction
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -429,10 +449,11 @@ class TestDistributedCompaction:
 
         # Verify all data is preserved
         pd.testing.assert_frame_equal(original_data, compacted_data)
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
-    def test_compaction_with_directory_namespace(self, temp_dir):
+    def test_compaction_with_directory_namespace(self, temp_dir: str) -> None:
         """Test compaction using DirectoryNamespace for credentials vending."""
         import lance_namespace as ln
 
@@ -482,7 +503,7 @@ class TestDistributedCompaction:
         assert len(dataset.get_fragments()) == 2, "Should start with 2 fragments"
         assert dataset.count_rows() == 20, "Should have 20 total rows"
 
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )
@@ -496,6 +517,7 @@ class TestDistributedCompaction:
             table_id=table_id,
         )
 
+        assert metrics is not None
         assert metrics.fragments_removed == 2, "Should remove 2 fragments"
         assert metrics.fragments_added == 1, "Should add 1 fragment"
 
@@ -509,7 +531,7 @@ class TestDistributedCompaction:
 class TestCompactDatabase:
     """Test cases for compact_database functionality."""
 
-    def test_compact_database_empty_database_raises(self):
+    def test_compact_database_empty_database_raises(self) -> None:
         """compact_database raises ValueError when database is empty."""
         with pytest.raises(ValueError, match="database.*non-empty"):
             lr.compact_database(
@@ -518,7 +540,7 @@ class TestCompactDatabase:
                 namespace_properties={"root": "/tmp"},
             )
 
-    def test_compact_database_missing_namespace_impl_raises(self):
+    def test_compact_database_missing_namespace_impl_raises(self) -> None:
         """compact_database raises ValueError when namespace_impl is empty."""
         with pytest.raises(ValueError, match="namespace_impl.*required"):
             lr.compact_database(
@@ -527,7 +549,7 @@ class TestCompactDatabase:
                 namespace_properties={"root": "/tmp"},
             )
 
-    def test_compact_database_empty_tables_returns_empty_list(self):
+    def test_compact_database_empty_tables_returns_empty_list(self) -> None:
         """When database has no tables, compact_database returns empty list."""
         mock_response = MagicMock()
         mock_response.tables = []
@@ -553,13 +575,13 @@ class TestCompactDatabase:
         request = args[0] if args else kwargs.get("request")
         assert request is not None and request.id == ["my_db"]
 
-    def test_compact_database_two_tables_both_compacted(self, temp_dir):
+    def test_compact_database_two_tables_both_compacted(self, temp_dir: str) -> None:
         """compact_database compacts all tables under the given database."""
         import lance_namespace as ln
 
         database = ["compact_db"]
         table_names = ["table_a", "table_b"]
-        compaction_options = CompactionOptions(
+        compaction_options = _compaction_options(
             target_rows_per_fragment=100,
             num_threads=1,
         )

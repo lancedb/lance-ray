@@ -1,7 +1,10 @@
+import pickle
 from types import SimpleNamespace
+from typing import Any
 
 import pyarrow as pa
 import pytest
+import ray
 from lance_ray import pool as pool_mod
 from lance_ray import search as search_mod
 from lance_ray.search import (
@@ -17,15 +20,15 @@ from lance_ray.search import (
 
 
 class _FakeFragment:
-    def __init__(self, fragment_id: int, rows: int = 1):
+    def __init__(self, fragment_id: int, rows: int = 1) -> None:
         self.fragment_id = fragment_id
         self._rows = rows
 
-    def count_rows(self):
+    def count_rows(self) -> int:
         return self._rows
 
 
-def _index_with_segments(*segments):
+def _index_with_segments(*segments: Any) -> SimpleNamespace:
     return SimpleNamespace(
         name="vector_idx",
         field_names=["vector"],
@@ -37,22 +40,22 @@ def _index_with_segments(*segments):
     )
 
 
-def _mock_pickled_dataset(monkeypatch, dataset):
+def _mock_pickled_dataset(monkeypatch: pytest.MonkeyPatch, dataset: Any) -> bytes:
     search_mod._load_pickled_dataset.cache_clear()
     search_mod._load_pickled_dataset_ref.cache_clear()
     pickled_dataset = f"pickled-dataset-{id(dataset)}".encode()
 
-    def fake_loads(value):
+    def fake_loads(value: Any) -> Any:
         assert value == pickled_dataset
         return dataset
 
-    monkeypatch.setattr(search_mod.pickle, "loads", fake_loads)
+    monkeypatch.setattr(pickle, "loads", fake_loads)
     return pickled_dataset
 
 
-def test_select_vector_index_raises_for_missing_explicit_index_name():
+def test_select_vector_index_raises_for_missing_explicit_index_name() -> None:
     index = _index_with_segments(("S1", [1, 2]))
-    dataset = SimpleNamespace(describe_indices=lambda: [index])
+    dataset: Any = SimpleNamespace(describe_indices=lambda: [index])
 
     with pytest.raises(ValueError, match="missing_idx.*vector_idx"):
         _select_vector_index(
@@ -62,14 +65,14 @@ def test_select_vector_index_raises_for_missing_explicit_index_name():
         )
 
 
-def test_select_vector_index_matches_canonical_lance_field_path():
+def test_select_vector_index_matches_canonical_lance_field_path() -> None:
     index = SimpleNamespace(
         name="hyphen_idx",
         field_names=["`meta-data`.`user-id`"],
         index_type="IVF_PQ",
         segments=[],
     )
-    dataset = SimpleNamespace(describe_indices=lambda: [index])
+    dataset: Any = SimpleNamespace(describe_indices=lambda: [index])
 
     assert (
         _select_vector_index(
@@ -81,7 +84,7 @@ def test_select_vector_index_matches_canonical_lance_field_path():
     )
 
 
-def test_plan_vector_search_keeps_segment_fragments_together():
+def test_plan_vector_search_keeps_segment_fragments_together() -> None:
     fragments = [_FakeFragment(fragment_id) for fragment_id in range(1, 6)]
     index = _index_with_segments(
         ("S1", [1, 2]),
@@ -109,7 +112,7 @@ def test_plan_vector_search_keeps_segment_fragments_together():
     }
 
 
-def test_plan_vector_search_adds_unindexed_fragments_as_fallback():
+def test_plan_vector_search_adds_unindexed_fragments_as_fallback() -> None:
     fragments = [_FakeFragment(fragment_id) for fragment_id in range(1, 5)]
     index = _index_with_segments(("S1", [1, 2]))
 
@@ -134,7 +137,7 @@ def test_plan_vector_search_adds_unindexed_fragments_as_fallback():
     )
 
 
-def test_plan_vector_search_does_not_mix_indexed_and_fallback_units():
+def test_plan_vector_search_does_not_mix_indexed_and_fallback_units() -> None:
     fragments = [_FakeFragment(fragment_id) for fragment_id in range(1, 5)]
     index = _index_with_segments(("S1", [1, 2]))
 
@@ -151,7 +154,7 @@ def test_plan_vector_search_does_not_mix_indexed_and_fallback_units():
     ]
 
 
-def test_plan_vector_search_can_skip_unindexed_fragments():
+def test_plan_vector_search_can_skip_unindexed_fragments() -> None:
     fragments = [_FakeFragment(fragment_id) for fragment_id in range(1, 5)]
     index = _index_with_segments(("S1", [1, 2]))
 
@@ -165,7 +168,7 @@ def test_plan_vector_search_can_skip_unindexed_fragments():
     assert plans == [_SearchPlan(fragment_ids=[1, 2], index_segments=["S1"])]
 
 
-def test_plan_vector_search_without_index_uses_flat_fallback():
+def test_plan_vector_search_without_index_uses_flat_fallback() -> None:
     fragments = [_FakeFragment(fragment_id) for fragment_id in range(1, 4)]
 
     plans = _plan_vector_search(
@@ -183,17 +186,19 @@ def test_plan_vector_search_without_index_uses_flat_fallback():
     assert all(not plan.index_segments for plan in plans)
 
 
-def test_execute_indexed_vector_search_plan_does_not_pass_fragments(monkeypatch):
-    scanner_options = {}
+def test_execute_indexed_vector_search_plan_does_not_pass_fragments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner_options: dict[str, Any] = {}
 
     class FakeDataset:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def get_fragment(self, fragment_id):
+        def get_fragment(self, fragment_id: int) -> None:
             raise AssertionError(f"unexpected fragment lookup: {fragment_id}")
 
-        def scanner(self, **kwargs):
+        def scanner(self, **kwargs: Any) -> SimpleNamespace:
             scanner_options.update(kwargs)
             return SimpleNamespace(
                 to_table=lambda: pa.table({"id": [1], "_distance": [0.1]})
@@ -208,18 +213,21 @@ def test_execute_indexed_vector_search_plan_does_not_pass_fragments(monkeypatch)
         analyze_plan=False,
     )
 
+    assert isinstance(result, pa.Table)
     assert result.num_rows == 1
     assert "fragments" not in scanner_options
     assert scanner_options["index_segments"] == ["S1"]
     assert scanner_options["fast_search"] is True
 
 
-def test_execute_indexed_vector_search_plan_without_index_segments_support(monkeypatch):
+def test_execute_indexed_vector_search_plan_without_index_segments_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeDataset:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def scanner(self, columns=None):
+        def scanner(self, columns: Any = None) -> SimpleNamespace:
             return SimpleNamespace(to_table=lambda: pa.table({"id": [1]}))
 
     with pytest.raises(RuntimeError, match="index_segments"):
@@ -233,21 +241,23 @@ def test_execute_indexed_vector_search_plan_without_index_segments_support(monke
         )
 
 
-def test_execute_fallback_vector_search_plan_computes_local_top_k(monkeypatch):
-    scanner_options = {}
+def test_execute_fallback_vector_search_plan_computes_local_top_k(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner_options: dict[str, Any] = {}
     vectors = pa.FixedSizeListArray.from_arrays(
         pa.array([10.0, 0.0, 1.0, 0.0, 0.0, 2.0], type=pa.float32()),
         2,
     )
 
     class FakeDataset:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def get_fragment(self, fragment_id):
+        def get_fragment(self, fragment_id: int) -> str:
             return f"fragment-{fragment_id}"
 
-        def scanner(self, **kwargs):
+        def scanner(self, **kwargs: Any) -> SimpleNamespace:
             scanner_options.update(kwargs)
             return SimpleNamespace(
                 to_table=lambda: pa.table({"id": [1, 2, 3], "vector": vectors})
@@ -265,29 +275,32 @@ def test_execute_fallback_vector_search_plan_computes_local_top_k(monkeypatch):
     assert "nearest" not in scanner_options
     assert scanner_options["fragments"] == ["fragment-7"]
     assert scanner_options["columns"] == ["id", "vector"]
+    assert isinstance(result, pa.Table)
     assert result.column("id").to_pylist() == [2, 3]
     assert result.column("_distance").to_pylist() == [1.0, 2.0]
     assert "vector" not in result.column_names
 
 
-def test_execute_indexed_vector_search_plan_can_analyze_plan(monkeypatch):
-    scanner_options = {}
+def test_execute_indexed_vector_search_plan_can_analyze_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner_options: dict[str, Any] = {}
 
     class FakeScanner:
-        def analyze_plan(self):
+        def analyze_plan(self) -> str:
             return "indexed plan"
 
-        def to_table(self):
+        def to_table(self) -> None:
             raise AssertionError("analyze_plan should not execute to_table")
 
     class FakeDataset:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def get_fragment(self, fragment_id):
+        def get_fragment(self, fragment_id: int) -> None:
             raise AssertionError(f"unexpected fragment lookup: {fragment_id}")
 
-        def scanner(self, **kwargs):
+        def scanner(self, **kwargs: Any) -> "FakeScanner":
             scanner_options.update(kwargs)
             return FakeScanner()
 
@@ -309,24 +322,26 @@ def test_execute_indexed_vector_search_plan_can_analyze_plan(monkeypatch):
     assert scanner_options["fast_search"] is True
 
 
-def test_execute_fallback_vector_search_plan_can_analyze_plan(monkeypatch):
-    scanner_options = {}
+def test_execute_fallback_vector_search_plan_can_analyze_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner_options: dict[str, Any] = {}
 
     class FakeScanner:
-        def analyze_plan(self):
+        def analyze_plan(self) -> str:
             return "fallback plan"
 
-        def to_table(self):
+        def to_table(self) -> None:
             raise AssertionError("analyze_plan should not execute to_table")
 
     class FakeDataset:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def get_fragment(self, fragment_id):
+        def get_fragment(self, fragment_id: int) -> str:
             return f"fragment-{fragment_id}"
 
-        def scanner(self, **kwargs):
+        def scanner(self, **kwargs: Any) -> "FakeScanner":
             scanner_options.update(kwargs)
             return FakeScanner()
 
@@ -348,7 +363,7 @@ def test_execute_fallback_vector_search_plan_can_analyze_plan(monkeypatch):
     assert scanner_options["columns"] == ["id", "vector"]
 
 
-def test_format_analyze_plan_results():
+def test_format_analyze_plan_results() -> None:
     result = _format_analyze_plan_results(
         [
             _SearchPlanAnalysis(
@@ -369,7 +384,7 @@ def test_format_analyze_plan_results():
     assert "fallback plan" in result
 
 
-def test_merge_vector_search_results_returns_global_top_k():
+def test_merge_vector_search_results_returns_global_top_k() -> None:
     left = pa.table({"id": [1, 2], "_distance": [0.4, 0.1]})
     right = pa.table({"id": [3, 4], "_distance": [0.2, 0.3]})
 
@@ -379,44 +394,44 @@ def test_merge_vector_search_results_returns_global_top_k():
     assert result.column("_distance").to_pylist() == [0.1, 0.2, 0.3]
 
 
-def test_merge_vector_search_results_requires_distance():
+def test_merge_vector_search_results_requires_distance() -> None:
     table = pa.table({"id": [1, 2]})
 
     with pytest.raises(RuntimeError, match="_distance"):
         _merge_vector_search_results([table], k=1)
 
 
-def test_search_scanner_options_reject_managed_options():
+def test_search_scanner_options_reject_managed_options() -> None:
     with pytest.raises(ValueError, match="nearest"):
         _validate_search_scanner_options({"nearest": {"column": "vector"}})
 
 
-def test_search_scanner_options_reject_fast_search_override():
+def test_search_scanner_options_reject_fast_search_override() -> None:
     with pytest.raises(ValueError, match="fast_search"):
         _validate_search_scanner_options({"fast_search": True})
 
 
-def test_vector_search_reuses_global_pool(monkeypatch):
-    events = []
+def test_vector_search_reuses_global_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[Any] = []
 
     class FakeAsyncResult:
-        def get(self):
+        def get(self) -> Any:
             events.append("get")
             return [pa.table({"id": [1], "_distance": [0.1]})]
 
     class FakeGlobalPool:
-        def map_async(self, func, plans, chunksize):
+        def map_async(self, func: Any, plans: Any, chunksize: int) -> Any:
             events.append(("map_async", plans, chunksize))
             return FakeAsyncResult()
 
-        def close(self):
+        def close(self) -> None:
             events.append("close")
 
-        def join(self):
+        def join(self) -> None:
             events.append("join")
 
     class FakeSchema:
-        def field(self, column):
+        def field(self, column: str) -> Any:
             return column
 
     class FakeDataset:
@@ -424,10 +439,10 @@ def test_vector_search_reuses_global_pool(monkeypatch):
         version = 1
         schema = FakeSchema()
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def get_fragments(self):
+        def get_fragments(self) -> list[Any]:
             return [_FakeFragment(1)]
 
     plan = _SearchPlan(fragment_ids=[1], index_segments=["S1"])
@@ -438,8 +453,8 @@ def test_vector_search_reuses_global_pool(monkeypatch):
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(search_mod, "_plan_vector_search", lambda **kwargs: [plan])
-    monkeypatch.setattr(search_mod.pickle, "dumps", lambda dataset: b"pickled-dataset")
-    monkeypatch.setattr(search_mod.ray, "is_initialized", lambda: False)
+    monkeypatch.setattr(pickle, "dumps", lambda dataset: b"pickled-dataset")
+    monkeypatch.setattr(ray, "is_initialized", lambda: False)
 
     pool_mod.set_global_pool(FakeGlobalPool())
     try:
@@ -451,6 +466,7 @@ def test_vector_search_reuses_global_pool(monkeypatch):
     finally:
         pool_mod.clear_global_pool()
 
+    assert isinstance(result, pa.Table)
     assert result.column("id").to_pylist() == [1]
     assert events == [
         ("map_async", [plan], 1),
@@ -458,43 +474,45 @@ def test_vector_search_reuses_global_pool(monkeypatch):
     ]
 
 
-def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
-    events = []
+def test_vector_search_puts_pickled_dataset_in_ray_object_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[Any] = []
 
     class FakeObjectRef:
-        def __init__(self, value):
+        def __init__(self, value: Any) -> None:
             self.value = value
 
     class FakeAsyncResult:
-        def __init__(self, results):
+        def __init__(self, results: Any) -> None:
             self._results = results
 
-        def get(self):
+        def get(self) -> Any:
             events.append("get")
             return self._results
 
     class FakeGlobalPool:
-        def map_async(self, func, plans, chunksize):
+        def map_async(self, func: Any, plans: Any, chunksize: int) -> Any:
             events.append(("map_async", plans, chunksize))
             return FakeAsyncResult([func(plan) for plan in plans])
 
-        def close(self):
+        def close(self) -> None:
             events.append("close")
 
-        def join(self):
+        def join(self) -> None:
             events.append("join")
 
     class FakeSchema:
-        def field(self, column):
+        def field(self, column: str) -> Any:
             return column
 
     class FakeDataset:
         schema = FakeSchema()
 
-        def get_fragments(self):
+        def get_fragments(self) -> list[Any]:
             return [_FakeFragment(1), _FakeFragment(2)]
 
-        def scanner(self, **kwargs):
+        def scanner(self, **kwargs: Any) -> SimpleNamespace:
             events.append(("scanner", kwargs))
             return SimpleNamespace(
                 to_table=lambda: pa.table({"id": [1], "_distance": [0.1]})
@@ -503,23 +521,23 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
     fake_dataset = FakeDataset()
     pickled_dataset = b"pickled-dataset"
 
-    def fake_lance_dataset(*args, **kwargs):
+    def fake_lance_dataset(*args: Any, **kwargs: Any) -> Any:
         events.append(("LanceDataset", args, kwargs))
         return fake_dataset
 
-    def fake_dumps(dataset):
+    def fake_dumps(dataset: Any) -> Any:
         events.append(("pickle.dumps", dataset is fake_dataset))
         return pickled_dataset
 
-    def fake_put(value):
+    def fake_put(value: Any) -> Any:
         events.append(("ray.put", value))
         return FakeObjectRef(value)
 
-    def fake_get(ref):
+    def fake_get(ref: Any) -> Any:
         events.append(("ray.get", ref.value))
         return ref.value
 
-    def fake_loads(value):
+    def fake_loads(value: Any) -> Any:
         events.append(("pickle.loads", value))
         assert value == pickled_dataset
         return fake_dataset
@@ -536,12 +554,12 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(search_mod, "_plan_vector_search", lambda **kwargs: plans)
-    monkeypatch.setattr(search_mod.pickle, "dumps", fake_dumps)
-    monkeypatch.setattr(search_mod.pickle, "loads", fake_loads)
-    monkeypatch.setattr(search_mod.ray, "ObjectRef", FakeObjectRef, raising=False)
-    monkeypatch.setattr(search_mod.ray, "is_initialized", lambda: True)
-    monkeypatch.setattr(search_mod.ray, "put", fake_put)
-    monkeypatch.setattr(search_mod.ray, "get", fake_get)
+    monkeypatch.setattr(pickle, "dumps", fake_dumps)
+    monkeypatch.setattr(pickle, "loads", fake_loads)
+    monkeypatch.setattr(ray, "ObjectRef", FakeObjectRef, raising=False)
+    monkeypatch.setattr(ray, "is_initialized", lambda: True)
+    monkeypatch.setattr(ray, "put", fake_put)
+    monkeypatch.setattr(ray, "get", fake_get)
     search_mod._load_pickled_dataset.cache_clear()
     search_mod._load_pickled_dataset_ref.cache_clear()
 
@@ -557,6 +575,7 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
         search_mod._load_pickled_dataset.cache_clear()
         search_mod._load_pickled_dataset_ref.cache_clear()
 
+    assert isinstance(result, pa.Table)
     assert result.column("id").to_pylist() == [1]
     assert events == [
         ("LanceDataset", ("dataset",), {"storage_options": {}}),
