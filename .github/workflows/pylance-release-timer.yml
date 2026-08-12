@@ -28,6 +28,9 @@ concurrency:
 jobs:
   trigger-update:
     runs-on: ubuntu-latest
+    # Only run in the upstream repo; forks lack LANCE_RELEASE_TOKEN and would
+    # fail this job on every scheduled tick.
+    if: github.repository == 'lance-format/lance-ray'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
