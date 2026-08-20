@@ -24,12 +24,22 @@ from .io import (
     write_lance,
 )
 from .pool import clear_global_pool, get_global_pool, init_global_pool, set_global_pool
-from .search import vector_search
+from .search import (
+    VectorSearchActorOptions,
+    VectorSearchSession,
+    VectorSearchStreamingOptions,
+    open_vector_search,
+    vector_search,
+)
 
 __all__ = [
     "read_lance",
     "write_lance",
     "vector_search",
+    "open_vector_search",
+    "VectorSearchSession",
+    "VectorSearchStreamingOptions",
+    "VectorSearchActorOptions",
     "init_global_pool",
     "set_global_pool",
     "get_global_pool",

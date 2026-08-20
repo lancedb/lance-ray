@@ -4,17 +4,20 @@ import lance
 import lance_ray as lr
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 import pytest
 from lance_ray import pool as pool_mod
 from lance_ray import search as search_mod
 from lance_ray.search import (
+    VectorSearchActorOptions,
+    VectorSearchStreamingOptions,
     _apply_distance_range,
-    _apply_index_metric_default,
-    _compute_vector_distances,
+    _canonical_multivector_batch,
+    _canonical_query_batch,
+    _compute_core_vector_distances,
     _execute_vector_search_plan,
     _format_analyze_plan_results,
     _merge_vector_search_results,
+    _plan_streaming_vector_search,
     _plan_vector_search,
     _SearchPlan,
     _SearchPlanAnalysis,
@@ -44,6 +47,20 @@ def _index_with_segments(*segments):
     )
 
 
+def _vector_table(vectors, ids=None):
+    matrix = np.asarray(vectors, dtype=np.float32)
+    vector_array = pa.FixedSizeListArray.from_arrays(
+        pa.array(matrix.reshape(-1), type=pa.float32()),
+        matrix.shape[1],
+    )
+    return pa.table(
+        {
+            "id": range(len(matrix)) if ids is None else ids,
+            "vector": vector_array,
+        }
+    )
+
+
 def _mock_pickled_dataset(monkeypatch, dataset):
     search_mod._load_pickled_dataset.cache_clear()
     search_mod._load_pickled_dataset_ref.cache_clear()
@@ -55,67 +72,6 @@ def _mock_pickled_dataset(monkeypatch, dataset):
 
     monkeypatch.setattr(search_mod.pickle, "loads", fake_loads)
     return pickled_dataset
-
-
-def _vector_table(vectors, ids=None, *, value_type=None):
-    matrix = np.asarray(vectors)
-    value_type = value_type or pa.float32()
-    vector_array = pa.FixedSizeListArray.from_arrays(
-        pa.array(matrix.reshape(-1), type=value_type),
-        matrix.shape[1],
-    )
-    return pa.table(
-        {
-            "id": range(len(matrix)) if ids is None else ids,
-            "vector": vector_array,
-        }
-    )
-
-
-class _FallbackDataset:
-    def __init__(self, table, scanner_options=None):
-        self.table = table
-        self.scanner_options = scanner_options
-
-    def get_fragment(self, fragment_id):
-        return f"fragment-{fragment_id}"
-
-    def scanner(self, **kwargs):
-        if self.scanner_options is not None:
-            self.scanner_options.update(kwargs)
-        return SimpleNamespace(to_table=lambda: self.table)
-
-
-def _create_partial_index_dataset(
-    path,
-    indexed_vectors,
-    appended_vectors,
-    *,
-    metric="l2",
-):
-    dataset = lance.write_dataset(
-        _vector_table(indexed_vectors),
-        path,
-        max_rows_per_file=2,
-    )
-    dataset.create_index(
-        "vector",
-        "IVF_FLAT",
-        num_partitions=1,
-        name="vector_idx",
-        metric=metric,
-    )
-    lance.write_dataset(
-        _vector_table(
-            appended_vectors,
-            ids=range(
-                len(indexed_vectors), len(indexed_vectors) + len(appended_vectors)
-            ),
-        ),
-        path,
-        mode="append",
-    )
-    return lance.dataset(path)
 
 
 def test_select_vector_index_raises_for_missing_explicit_index_name():
@@ -303,14 +259,27 @@ def test_execute_indexed_vector_search_plan_without_index_segments_support(monke
 
 def test_execute_fallback_vector_search_plan_computes_local_top_k(monkeypatch):
     scanner_options = {}
-    dataset = _FallbackDataset(
-        _vector_table([[10.0, 0.0], [1.0, 0.0], [0.0, 2.0]], ids=[1, 2, 3]),
-        scanner_options,
+    vectors = pa.FixedSizeListArray.from_arrays(
+        pa.array([10.0, 0.0, 1.0, 0.0, 0.0, 2.0], type=pa.float32()),
+        2,
     )
+
+    class FakeDataset:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_fragment(self, fragment_id):
+            return f"fragment-{fragment_id}"
+
+        def scanner(self, **kwargs):
+            scanner_options.update(kwargs)
+            return SimpleNamespace(
+                to_table=lambda: pa.table({"id": [1, 2, 3], "vector": vectors})
+            )
 
     result = _execute_vector_search_plan(
         _SearchPlan(fragment_ids=[7], index_segments=[]),
-        pickled_dataset=_mock_pickled_dataset(monkeypatch, dataset),
+        pickled_dataset=_mock_pickled_dataset(monkeypatch, FakeDataset()),
         base_scanner_options={"columns": ["id", "_distance"], "fast_search": False},
         nearest={"column": "vector", "q": [0.0, 0.0], "k": 2},
         candidate_k=2,
@@ -321,116 +290,8 @@ def test_execute_fallback_vector_search_plan_computes_local_top_k(monkeypatch):
     assert scanner_options["fragments"] == ["fragment-7"]
     assert scanner_options["columns"] == ["id", "vector"]
     assert result.column("id").to_pylist() == [2, 3]
-    assert result.column("_distance").to_pylist() == [1.0, 4.0]
+    assert result.column("_distance").to_pylist() == [1.0, 2.0]
     assert "vector" not in result.column_names
-
-
-def test_execute_batch_hamming_fallback_uses_bit_distance(monkeypatch):
-    conversion_calls = 0
-    dataset = _FallbackDataset(_vector_table([[0], [3], [255]], value_type=pa.uint8()))
-    original_vector_column_to_numpy = search_mod._vector_column_to_numpy
-
-    def count_vector_column_conversion(vector_column, metric):
-        nonlocal conversion_calls
-        conversion_calls += 1
-        return original_vector_column_to_numpy(vector_column, metric)
-
-    monkeypatch.setattr(
-        search_mod,
-        "_vector_column_to_numpy",
-        count_vector_column_conversion,
-    )
-
-    result = _execute_vector_search_plan(
-        _SearchPlan(fragment_ids=[7], index_segments=[]),
-        pickled_dataset=_mock_pickled_dataset(monkeypatch, dataset),
-        base_scanner_options={"columns": ["id", "_distance"], "fast_search": False},
-        nearest={
-            "column": "vector",
-            "q": [[0], [255]],
-            "k": 3,
-            "metric": "hamming",
-        },
-        candidate_k=3,
-        analyze_plan=False,
-        is_batch_query=True,
-    )
-
-    assert result.column("query_index").to_pylist() == [0, 0, 0, 1, 1, 1]
-    assert result.column("id").to_pylist() == [0, 1, 2, 2, 1, 0]
-    assert result.column("_distance").to_pylist() == [0.0, 2.0, 8.0, 0.0, 6.0, 8.0]
-    assert conversion_calls == 1
-
-
-def test_apply_distance_range_uses_inclusive_lower_exclusive_upper():
-    table = pa.table({"id": [0, 1, 2], "_distance": [0.5, 1.0, 4.0]})
-
-    result = _apply_distance_range(table, {"distance_range": (0.5, 4.0)})
-
-    assert result.column("id").to_pylist() == [0, 1]
-    assert result.column("_distance").to_pylist() == [0.5, 1.0]
-
-
-@pytest.mark.parametrize(
-    ("metric", "vectors", "query", "expected"),
-    [
-        ("l2", [[0.0, 2.0], [3.0, 4.0]], [0.0, 0.0], [4.0, 25.0]),
-        (
-            "cosine",
-            [[1.0, 0.0], [1.0, 1.0]],
-            [1.0, 0.0],
-            [0.0, 0.29289323],
-        ),
-        ("dot", [[1.0, 0.0], [1.0, 1.0]], [1.0, 1.0], [0.0, -1.0]),
-        (
-            "hamming",
-            [[0, 0], [255, 0], [15, 240], [1, 2]],
-            [0, 0],
-            [0.0, 8.0, 8.0, 2.0],
-        ),
-    ],
-)
-def test_fallback_distance_conventions(metric, vectors, query, expected):
-    dtype = np.uint8 if metric == "hamming" else np.float32
-    distances = _compute_vector_distances(
-        np.asarray(vectors, dtype=dtype), query, metric
-    )
-
-    assert distances.tolist() == pytest.approx(expected)
-
-
-def test_execute_fallback_filters_null_and_invalid_cosine_vectors(monkeypatch):
-    table = pa.table(
-        {
-            "id": [0, 1, 2, 3],
-            "vector": pa.array(
-                [[0.0, 0.0], None, [1.0, 0.0], [0.0, 1.0]],
-                type=pa.list_(pa.float32(), 2),
-            ),
-            "_rowid": [0, 1, 2, 3],
-        }
-    )
-    result = _execute_vector_search_plan(
-        _SearchPlan(fragment_ids=[7], index_segments=[]),
-        pickled_dataset=_mock_pickled_dataset(
-            monkeypatch,
-            _FallbackDataset(table),
-        ),
-        base_scanner_options={"fast_search": False, "with_row_id": True},
-        nearest={
-            "column": "vector",
-            "q": [[1.0, 0.0], [0.0, 0.0]],
-            "k": 4,
-            "metric": "cosine",
-        },
-        candidate_k=4,
-        analyze_plan=False,
-        is_batch_query=True,
-    )
-
-    assert result.column("query_index").to_pylist() == [0, 0]
-    assert result.column("id").to_pylist() == [2, 3]
-    assert result.column("_distance").to_pylist() == [0.0, 1.0]
 
 
 def test_execute_indexed_vector_search_plan_can_analyze_plan(monkeypatch):
@@ -533,93 +394,61 @@ def test_format_analyze_plan_results():
 
 
 def test_merge_vector_search_results_returns_global_top_k():
-    left = pa.table({"id": [1, 2], "_distance": [0.4, 0.1], "_rowid": [40, 20]})
-    right = pa.table({"id": [3, 4], "_distance": [0.1, 0.3], "_rowid": [10, 30]})
+    left = pa.table({"id": [1, 2], "_distance": [0.4, 0.1]})
+    right = pa.table({"id": [3, 4], "_distance": [0.2, 0.3]})
 
     result = _merge_vector_search_results([left, right], k=3)
 
-    assert result.column("id").to_pylist() == [3, 2, 4]
-    assert result.column("_distance").to_pylist() == [0.1, 0.1, 0.3]
+    assert result.column("id").to_pylist() == [2, 3, 4]
+    assert result.column("_distance").to_pylist() == [0.1, 0.2, 0.3]
 
 
-def test_merge_batch_vector_search_results_returns_top_k_per_query():
+def test_merge_vector_search_results_requires_distance():
+    table = pa.table({"id": [1, 2]})
+
+    with pytest.raises(RuntimeError, match="_distance"):
+        _merge_vector_search_results([table], k=1)
+
+
+def test_merge_vector_search_results_can_merge_per_query():
     left = pa.table(
         {
-            "query_index": pa.array([0, 0, 1], type=pa.int32()),
+            "query_index": [0, 0, 1],
             "id": [1, 2, 3],
-            "_distance": [0.4, 0.1, 0.2],
-            "_rowid": [40, 10, 30],
+            "_distance": [0.4, 0.1, 0.3],
         }
     )
     right = pa.table(
         {
-            "query_index": pa.array([0, 1, 1], type=pa.int32()),
+            "query_index": [0, 1, 1],
             "id": [4, 5, 6],
-            "_distance": [0.2, 0.3, 0.1],
-            "_rowid": [20, 50, 60],
+            "_distance": [0.2, 0.4, 0.1],
         }
     )
 
-    result = _merge_vector_search_results(
-        [left, right],
-        k=2,
-        is_batch_query=True,
-    )
+    result = _merge_vector_search_results([left, right], k=2, per_query=True)
 
-    assert result.column("query_index").to_pylist() == [0, 0, 1, 1]
-    assert result.column("id").to_pylist() == [2, 4, 6, 3]
-    assert result.column("_distance").to_pylist() == [0.1, 0.2, 0.1, 0.2]
+    assert result["query_index"].to_pylist() == [0, 0, 1, 1]
+    assert result["id"].to_pylist() == [2, 4, 6, 3]
 
 
-@pytest.mark.parametrize(
-    ("table", "is_batch_query", "missing_column"),
-    [
-        (pa.table({"id": [1, 2]}), False, "_distance"),
-        (pa.table({"id": [1], "_distance": [0.1]}), True, "query_index"),
-    ],
-)
-def test_merge_vector_search_results_requires_managed_columns(
-    table,
-    is_batch_query,
-    missing_column,
-):
-    with pytest.raises(RuntimeError, match=missing_column):
-        _merge_vector_search_results(
-            [table],
-            k=1,
-            is_batch_query=is_batch_query,
-        )
+def test_search_scanner_options_reject_managed_options():
+    with pytest.raises(ValueError, match="nearest"):
+        _validate_search_scanner_options({"nearest": {"column": "vector"}})
 
 
-@pytest.mark.parametrize(
-    "scanner_options",
-    [
-        {"nearest": {"column": "vector"}},
-        {"fast_search": True},
-    ],
-    ids=["nearest", "fast_search"],
-)
-def test_search_scanner_options_reject_managed_options(scanner_options):
-    managed_option = next(iter(scanner_options))
-    with pytest.raises(ValueError, match=managed_option):
-        _validate_search_scanner_options(scanner_options)
+def test_search_scanner_options_reject_fast_search_override():
+    with pytest.raises(ValueError, match="fast_search"):
+        _validate_search_scanner_options({"fast_search": True})
 
 
-def test_batch_vector_search_reuses_global_pool_in_one_round(monkeypatch):
+def test_vector_search_reuses_global_pool(monkeypatch):
     events = []
 
     class FakeAsyncResult:
         def get(self):
             events.append("get")
-            return [
-                pa.table(
-                    {
-                        "query_index": pa.array([0, 1], type=pa.int32()),
-                        "id": [1, 2],
-                        "_distance": [0.1, 0.2],
-                    }
-                )
-            ]
+            return [pa.table({"id": [1], "_distance": [0.1]})]
 
     class FakeGlobalPool:
         def map_async(self, func, plans, chunksize):
@@ -655,20 +484,6 @@ def test_batch_vector_search_reuses_global_pool_in_one_round(monkeypatch):
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(search_mod, "_plan_vector_search", lambda **kwargs: [plan])
-    monkeypatch.setattr(
-        search_mod,
-        "_inspect_vector_search_query",
-        lambda *args, **kwargs: (
-            True,
-            pa.schema(
-                [
-                    pa.field("query_index", pa.int32(), nullable=False),
-                    pa.field("id", pa.int64()),
-                    pa.field("_distance", pa.float32()),
-                ]
-            ),
-        ),
-    )
     monkeypatch.setattr(search_mod.pickle, "dumps", lambda dataset: b"pickled-dataset")
     monkeypatch.setattr(search_mod.ray, "is_initialized", lambda: False)
 
@@ -676,18 +491,464 @@ def test_batch_vector_search_reuses_global_pool_in_one_round(monkeypatch):
     try:
         result = search_mod.vector_search(
             uri="dataset",
-            nearest={"column": "vector", "q": [[0.0], [1.0]], "k": 1},
+            nearest={"column": "vector", "q": [0.0], "k": 1},
             num_workers=4,
         )
     finally:
         pool_mod.clear_global_pool()
 
-    assert result.column("query_index").to_pylist() == [0, 1]
-    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("id").to_pylist() == [1]
     assert events == [
         ("map_async", [plan], 1),
         "get",
     ]
+
+
+def test_streaming_option_defaults():
+    assert VectorSearchStreamingOptions() == VectorSearchStreamingOptions(
+        query_batch_size=None,
+        max_in_flight_batches=1,
+    )
+    assert VectorSearchActorOptions() == VectorSearchActorOptions(
+        num_actors=4,
+        ray_remote_args=None,
+        max_concurrent_batches=1,
+        max_pending_calls=None,
+        micro_batch_size=None,
+        scanner_concurrency=1,
+        index_cache_size_bytes=None,
+        metadata_cache_size_bytes=None,
+        prewarm_index=False,
+    )
+    assert VectorSearchActorOptions(
+        index_cache_size_bytes=0,
+        metadata_cache_size_bytes=0,
+    )
+
+
+def test_open_vector_search_requires_explicit_k():
+    with pytest.raises(ValueError, match="nearest must include 'k'"):
+        lr.open_vector_search(nearest={"column": "vector"})
+
+
+@pytest.mark.parametrize(
+    ("metric", "vectors", "query", "expected"),
+    [
+        ("l2", [[0.0, 2.0], [3.0, 4.0]], [0.0, 0.0], [4.0, 25.0]),
+        (
+            "cosine",
+            [[1.0, 0.0], [1.0, 1.0]],
+            [1.0, 0.0],
+            [0.0, 0.29289323],
+        ),
+        ("dot", [[1.0, 0.0], [1.0, 1.0]], [1.0, 1.0], [0.0, -1.0]),
+        (
+            "hamming",
+            [[0, 0], [255, 0], [15, 240], [1, 2]],
+            [0, 0],
+            [0.0, 8.0, 8.0, 2.0],
+        ),
+    ],
+)
+def test_streaming_fallback_distance_matches_core(metric, vectors, query, expected):
+    dtype = np.uint8 if metric == "hamming" else np.float32
+
+    distances = _compute_core_vector_distances(
+        np.asarray(vectors, dtype=dtype),
+        query,
+        metric,
+    )
+
+    assert distances.tolist() == pytest.approx(expected)
+
+
+def test_streaming_distance_range_is_lower_inclusive_upper_exclusive():
+    table = pa.table({"id": [0, 1, 2], "_distance": [0.5, 1.0, 4.0]})
+
+    result = _apply_distance_range(table, {"distance_range": (0.5, 4.0)})
+
+    assert result["id"].to_pylist() == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        ["id", "query_index"],
+        {"query_index": "id"},
+    ],
+)
+def test_open_vector_search_rejects_query_index_projection(columns):
+    with pytest.raises(ValueError, match="query_index is managed"):
+        lr.open_vector_search(
+            nearest={"column": "vector", "k": 10},
+            columns=columns,
+        )
+
+
+def test_open_vector_search_rejects_dataset_query_index_column(tmp_path):
+    table = _vector_table([[0.0, 0.0], [1.0, 0.0]])
+    table = table.append_column("query_index", pa.array([1, 2], type=pa.int32()))
+    dataset = lance.write_dataset(table, tmp_path / "query-index.lance")
+
+    with pytest.raises(ValueError, match="containing column 'query_index'"):
+        lr.open_vector_search(
+            dataset,
+            nearest={"column": "vector", "k": 1},
+        )
+
+
+def test_streaming_query_batches_are_canonicalized_by_column_type():
+    source = np.arange(12, dtype=np.float32).reshape(3, 4)[:, ::-1]
+    regular = _canonical_query_batch(source, "l2")
+
+    assert regular.flags.c_contiguous
+    assert regular.flags.owndata
+    assert not np.shares_memory(regular, source)
+
+    multivector = _canonical_multivector_batch(
+        [
+            np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            np.asarray([[1.0, 1.0]], dtype=np.float32),
+        ],
+        "cosine",
+    )
+    assert [query.shape for query in multivector] == [(2, 2), (1, 2)]
+    assert all(query.flags.c_contiguous for query in multivector)
+
+
+def test_streaming_planner_balances_indexed_and_fallback_units():
+    fragments = [
+        _FakeFragment(1, 100),
+        _FakeFragment(2, 90),
+        _FakeFragment(3, 80),
+    ]
+    plans = _plan_streaming_vector_search(
+        fragments=fragments,
+        vector_index=_index_with_segments(("S1", [1]), ("S2", [2])),
+        num_actors=2,
+        fast_search=False,
+    )
+
+    assert len(plans) == 2
+    assert {segment for plan in plans for segment in plan.index_segments} == {
+        "S1",
+        "S2",
+    }
+    assert {
+        fragment_id for plan in plans for fragment_id in plan.fallback_fragment_ids
+    } == {3}
+    assert any(plan.index_segments and plan.fallback_fragment_ids for plan in plans)
+
+
+def test_streaming_fallback_preserves_global_query_indices(tmp_path):
+    dataset = lance.write_dataset(
+        _vector_table(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 2.0],
+                [3.0, 0.0],
+                [0.0, 4.0],
+                [5.0, 0.0],
+            ]
+        ),
+        tmp_path / "streaming-flat.lance",
+        max_rows_per_file=2,
+    )
+
+    with lr.open_vector_search(
+        dataset,
+        nearest={"column": "vector", "k": 2},
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=2),
+        streaming_options=VectorSearchStreamingOptions(max_in_flight_batches=2),
+    ) as session:
+        results = list(
+            session.map_batches(
+                [
+                    np.asarray([[0.0, 0.0], [0.0, 4.0]], dtype=np.float32),
+                    np.asarray([[3.0, 0.0]], dtype=np.float32),
+                ]
+            )
+        )
+
+    assert [result["query_index"].to_pylist() for result in results] == [
+        [0, 0, 1, 1],
+        [2, 2],
+    ]
+    assert results[0]["query_index"].type == pa.int64()
+    assert results[0]["id"].to_pylist() == [0, 1, 4, 2]
+    assert results[1]["id"].to_pylist() == [3, 1]
+
+
+def test_streaming_fast_search_without_index_returns_empty_result(tmp_path):
+    dataset = lance.write_dataset(
+        _vector_table([[0.0, 0.0], [1.0, 0.0]]),
+        tmp_path / "streaming-fast.lance",
+    )
+
+    with lr.open_vector_search(
+        dataset,
+        nearest={"column": "vector", "k": 1},
+        columns=["id"],
+        fast_search=True,
+    ) as session:
+        [result] = list(
+            session.map_batches(
+                [np.asarray([[0.0, 0.0], [1.0, 0.0]], dtype=np.float32)]
+            )
+        )
+
+    assert result.num_rows == 0
+    assert result.column_names == ["query_index", "id", "_distance"]
+    assert result["query_index"].type == pa.int64()
+
+
+def test_streaming_partial_index_merges_fallback_results(tmp_path):
+    path = tmp_path / "streaming-partial.lance"
+    dataset = lance.write_dataset(
+        _vector_table([[0.0, 0.0], [1.0, 0.0], [0.0, 2.0], [3.0, 0.0]]),
+        path,
+        max_rows_per_file=2,
+    )
+    dataset.create_index(
+        "vector",
+        "IVF_FLAT",
+        num_partitions=1,
+        name="vector_idx",
+    )
+    lance.write_dataset(
+        _vector_table([[0.0, 4.0], [5.0, 0.0]], ids=[4, 5]),
+        path,
+        mode="append",
+    )
+
+    with lr.open_vector_search(
+        lance.dataset(path),
+        nearest={"column": "vector", "k": 2, "nprobes": 1},
+        index_name="vector_idx",
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=2),
+    ) as session:
+        [result] = list(
+            session.map_batches(
+                [np.asarray([[0.0, 4.0], [3.0, 0.0]], dtype=np.float32)]
+            )
+        )
+
+    assert result["query_index"].to_pylist() == [0, 0, 1, 1]
+    assert result["id"].to_pylist() == [4, 2, 3, 1]
+
+
+def test_streaming_fallback_inherits_index_metric(tmp_path):
+    path = tmp_path / "streaming-partial-cosine.lance"
+    dataset = lance.write_dataset(
+        _vector_table([[1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [-1.0, 0.0]]),
+        path,
+        max_rows_per_file=2,
+    )
+    dataset.create_index(
+        "vector",
+        "IVF_FLAT",
+        num_partitions=1,
+        name="vector_idx",
+        metric="cosine",
+    )
+    lance.write_dataset(
+        _vector_table([[0.5, 0.5], [-1.0, -1.0]], ids=[4, 5]),
+        path,
+        mode="append",
+    )
+
+    with lr.open_vector_search(
+        lance.dataset(path),
+        nearest={"column": "vector", "k": 3, "nprobes": 1},
+        index_name="vector_idx",
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=2),
+    ) as session:
+        [result] = list(
+            session.map_batches(
+                [np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)]
+            )
+        )
+
+    assert result["query_index"].to_pylist() == [0, 0, 0, 1, 1, 1]
+    assert result["id"].to_pylist() == [0, 1, 4, 2, 1, 4]
+    assert result["_distance"].to_pylist() == pytest.approx(
+        [0.0, 0.29289323, 0.29289323, 0.0, 0.29289323, 0.29289323]
+    )
+
+
+def test_streaming_can_prewarm_owned_index_segments(tmp_path):
+    dataset = lance.write_dataset(
+        _vector_table([[0.0, 0.0], [1.0, 0.0], [0.0, 2.0], [3.0, 0.0]]),
+        tmp_path / "streaming-prewarm.lance",
+        max_rows_per_file=2,
+    )
+    dataset.create_index(
+        "vector",
+        "IVF_FLAT",
+        num_partitions=1,
+        name="vector_idx",
+    )
+
+    with lr.open_vector_search(
+        lance.dataset(dataset.uri),
+        nearest={"column": "vector", "k": 1, "nprobes": 1},
+        index_name="vector_idx",
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(
+            num_actors=1,
+            prewarm_index=True,
+        ),
+    ) as session:
+        assert session.prewarm_results[0]["skipped"] is False
+        assert session.prewarm_results[0]["index_segments"] == 1
+        [result] = list(
+            session.map_batches([np.asarray([[0.0, 0.0]], dtype=np.float32)])
+        )
+
+    assert result["id"].to_pylist() == [0]
+
+
+def test_streaming_inherits_checked_out_dataset_snapshot(tmp_path):
+    path = tmp_path / "streaming-branch.lance"
+    dataset = lance.write_dataset(_vector_table([[0.0, 0.0]], ids=[0]), path)
+    branch_dataset = dataset.create_branch("experiment")
+    lance.write_dataset(
+        _vector_table([[1.0, 0.0]], ids=[1]),
+        path,
+        mode="append",
+    )
+
+    with lr.open_vector_search(
+        branch_dataset,
+        nearest={"column": "vector", "k": 2},
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=1),
+    ) as session:
+        [result] = list(
+            session.map_batches([np.asarray([[0.0, 0.0]], dtype=np.float32)])
+        )
+
+    assert result["id"].to_pylist() == [0]
+    assert session.actor_states[0]["version"] == branch_dataset.version
+
+
+def test_streaming_uri_branch_uses_branch_snapshot(tmp_path):
+    path = tmp_path / "streaming-uri-branch.lance"
+    dataset = lance.write_dataset(_vector_table([[0.0, 0.0]], ids=[0]), path)
+    branch_dataset = dataset.create_branch("experiment")
+    branch_dataset = lance.write_dataset(
+        _vector_table([[1.0, 0.0]], ids=[1]),
+        branch_dataset.uri,
+        mode="append",
+    )
+
+    assert lance.dataset(path).version < branch_dataset.version
+
+    with lr.open_vector_search(
+        str(path),
+        branch="experiment",
+        nearest={"column": "vector", "k": 2},
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=1),
+    ) as session:
+        [result] = list(
+            session.map_batches([np.asarray([[0.0, 0.0]], dtype=np.float32)])
+        )
+
+    assert result["id"].to_pylist() == [0, 1]
+    assert session.actor_states[0]["version"] == branch_dataset.version
+
+
+def test_streaming_multivector_uses_additive_maxsim_distance(tmp_path):
+    vector_type = pa.list_(pa.list_(pa.float32(), 2))
+    dataset = lance.write_dataset(
+        pa.table(
+            {
+                "id": [0, 1, 2],
+                "vector": pa.array(
+                    [
+                        [[1.0, 0.0], [0.0, 1.0]],
+                        [[1.0, 0.0]],
+                        [[-1.0, 0.0], [0.0, -1.0]],
+                    ],
+                    type=vector_type,
+                ),
+            }
+        ),
+        tmp_path / "streaming-multivector.lance",
+    )
+    query_batch = pa.array(
+        [
+            [[1.0, 0.0], [0.0, 1.0]],
+            [[1.0, 0.0]],
+        ],
+        type=vector_type,
+    )
+
+    with lr.open_vector_search(
+        dataset,
+        nearest={"column": "vector", "k": 2, "metric": "cosine"},
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=1),
+    ) as session:
+        [result] = list(session.map_batches([query_batch]))
+
+    assert result["query_index"].to_pylist() == [0, 0, 1, 1]
+    assert result["id"].to_pylist() == [0, 1, 0, 1]
+    assert result["_distance"].to_pylist() == pytest.approx([0.0, 1.0, 0.0, 0.0])
+
+
+def test_streaming_multivector_uses_core_indexed_search(tmp_path):
+    vector_type = pa.list_(pa.list_(pa.float32(), 2))
+    rows = [
+        [[1.0, 0.0], [0.0, 1.0]],
+        [[1.0, 0.0]],
+        [[-1.0, 0.0], [0.0, -1.0]],
+    ] * 20
+    dataset = lance.write_dataset(
+        pa.table(
+            {
+                "id": range(len(rows)),
+                "vector": pa.array(rows, type=vector_type),
+            }
+        ),
+        tmp_path / "streaming-multivector-indexed.lance",
+    )
+    dataset.create_index(
+        "vector",
+        "IVF_FLAT",
+        num_partitions=1,
+        name="multivector_idx",
+        metric="cosine",
+    )
+
+    with lr.open_vector_search(
+        lance.dataset(dataset.uri),
+        nearest={"column": "vector", "k": 1, "nprobes": 1},
+        index_name="multivector_idx",
+        columns=["id"],
+        actor_options=VectorSearchActorOptions(num_actors=1),
+    ) as session:
+        [result] = list(
+            session.map_batches(
+                [
+                    pa.array(
+                        [
+                            [[1.0, 0.0], [0.0, 1.0]],
+                            [[1.0, 0.0]],
+                        ],
+                        type=vector_type,
+                    )
+                ]
+            )
+        )
+
+    assert result["query_index"].to_pylist() == [0, 1]
+    assert result["_distance"].to_pylist() == pytest.approx([0.0, 0.0])
 
 
 def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
@@ -768,16 +1029,6 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(search_mod, "_plan_vector_search", lambda **kwargs: plans)
-    monkeypatch.setattr(
-        search_mod,
-        "_inspect_vector_search_query",
-        lambda *args, **kwargs: (
-            False,
-            pa.schema(
-                [pa.field("id", pa.int64()), pa.field("_distance", pa.float32())]
-            ),
-        ),
-    )
     monkeypatch.setattr(search_mod.pickle, "dumps", fake_dumps)
     monkeypatch.setattr(search_mod.pickle, "loads", fake_loads)
     monkeypatch.setattr(search_mod.ray, "ObjectRef", FakeObjectRef, raising=False)
@@ -811,7 +1062,6 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
             "scanner",
             {
                 "fast_search": True,
-                "with_row_id": True,
                 "nearest": {"column": "vector", "q": [0.0], "k": 1},
                 "index_segments": ["S1"],
             },
@@ -820,207 +1070,9 @@ def test_vector_search_puts_pickled_dataset_in_ray_object_store(monkeypatch):
             "scanner",
             {
                 "fast_search": True,
-                "with_row_id": True,
                 "nearest": {"column": "vector", "q": [0.0], "k": 1},
                 "index_segments": ["S2"],
             },
         ),
         "get",
     ]
-
-
-def test_batch_vector_search_without_index_matches_single_queries(tmp_path):
-    vectors = np.asarray(
-        [
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 2.0],
-            [3.0, 0.0],
-            [0.0, 4.0],
-            [5.0, 0.0],
-        ],
-        dtype=np.float32,
-    )
-    dataset = lance.write_dataset(
-        _vector_table(vectors),
-        tmp_path / "batch-flat.lance",
-        max_rows_per_file=2,
-    )
-    queries = np.asarray([[0.0, 0.0], [0.0, 4.0]], dtype=np.float32)
-
-    batch = lr.vector_search(
-        dataset,
-        nearest={"column": "vector", "q": queries, "k": 2},
-        scanner_options={"columns": ["id", "_rowid"]},
-        num_workers=2,
-    )
-
-    assert batch.column_names == ["query_index", "id", "_distance", "_rowid"]
-    assert batch.column("query_index").to_pylist() == [0, 0, 1, 1]
-    assert batch.num_rows == len(queries) * 2
-    for query_index, query in enumerate(queries):
-        single = lr.vector_search(
-            dataset,
-            nearest={"column": "vector", "q": query, "k": 2},
-            scanner_options={"columns": ["id", "_rowid"]},
-            num_workers=2,
-        )
-        batch_slice = batch.filter(pc.field("query_index") == query_index).drop_columns(
-            ["query_index"]
-        )
-        assert batch_slice.column("id").to_pylist() == single.column("id").to_pylist()
-        assert batch_slice.column("_distance").to_pylist() == pytest.approx(
-            single.column("_distance").to_pylist()
-        )
-        assert (
-            batch_slice.column("_rowid").to_pylist()
-            == single.column("_rowid").to_pylist()
-        )
-
-    empty = lr.vector_search(
-        dataset,
-        nearest={"column": "vector", "q": queries, "k": 2},
-        columns=["id"],
-        num_workers=2,
-        fast_search=True,
-    )
-    assert empty.num_rows == 0
-    assert empty.column_names == ["query_index", "id", "_distance"]
-    assert empty.schema.field("query_index").type == pa.int32()
-    assert not empty.schema.field("query_index").nullable
-
-    virtual_projection = lr.vector_search(
-        dataset,
-        nearest={"column": "vector", "q": queries, "k": 1},
-        columns=["query_index"],
-        num_workers=2,
-    )
-    assert virtual_projection.column_names == ["query_index", "_distance"]
-    assert virtual_projection.column("query_index").to_pylist() == [0, 1]
-
-
-def test_batch_vector_search_rejects_dataset_query_index_column(tmp_path):
-    vectors = _vector_table([[0.0, 0.0], [1.0, 0.0]])["vector"]
-    dataset = lance.write_dataset(
-        pa.table({"query_index": [7, 8], "vector": vectors}),
-        tmp_path / "batch-query-index.lance",
-    )
-
-    with pytest.raises(ValueError, match="column 'query_index'"):
-        lr.vector_search(
-            dataset,
-            nearest={"column": "vector", "q": [[0.0, 0.0]], "k": 1},
-        )
-
-
-def test_multivector_fallback_reports_unsupported_boundary(tmp_path):
-    vector_type = pa.list_(pa.list_(pa.float32(), 2))
-    dataset = lance.write_dataset(
-        pa.table(
-            {
-                "id": [0, 1],
-                "vector": pa.array(
-                    [
-                        [[1.0, 0.0], [0.0, 1.0]],
-                        [[-1.0, 0.0], [0.0, -1.0]],
-                    ],
-                    type=vector_type,
-                ),
-            }
-        ),
-        tmp_path / "multivector-flat.lance",
-    )
-
-    with pytest.raises(ValueError, match="does not support multivector"):
-        lr.vector_search(
-            dataset,
-            nearest={
-                "column": "vector",
-                "q": [[1.0, 0.0], [0.0, 1.0]],
-                "k": 1,
-            },
-        )
-
-
-def test_batch_vector_search_with_partial_index_preserves_per_query_top_k(tmp_path):
-    indexed_vectors = np.asarray(
-        [[0.0, 0.0], [1.0, 0.0], [0.0, 2.0], [3.0, 0.0]],
-        dtype=np.float32,
-    )
-    appended_vectors = np.asarray([[0.0, 4.0], [5.0, 0.0]], dtype=np.float32)
-    dataset = _create_partial_index_dataset(
-        tmp_path / "batch-partial.lance",
-        indexed_vectors,
-        appended_vectors,
-    )
-    queries = np.asarray([[0.0, 4.0], [3.0, 0.0]], dtype=np.float32)
-
-    batch = lr.vector_search(
-        dataset,
-        nearest={"column": "vector", "q": queries, "k": 2},
-        index_name="vector_idx",
-        columns=["id", "_rowid"],
-        num_workers=2,
-    )
-
-    assert batch.column_names == ["query_index", "id", "_distance", "_rowid"]
-    assert batch.column("query_index").to_pylist() == [0, 0, 1, 1]
-    assert batch.column("id").to_pylist() == [4, 2, 3, 1]
-    assert batch.column("_distance").to_pylist() == [0.0, 4.0, 0.0, 4.0]
-
-    ranged_batch = lr.vector_search(
-        dataset,
-        nearest={
-            "column": "vector",
-            "q": queries,
-            "k": 2,
-            "distance_range": (0.5, 10.0),
-        },
-        index_name="vector_idx",
-        columns=["id"],
-        num_workers=2,
-    )
-    assert ranged_batch.column("query_index").to_pylist() == [0, 1, 1]
-    assert ranged_batch.column("id").to_pylist() == [2, 1, 5]
-    assert ranged_batch.column("_distance").to_pylist() == [4.0, 4.0, 4.0]
-
-
-@pytest.mark.parametrize("metric", ["COSINE", "DOT"])
-def test_apply_index_metric_default(metric):
-    index = SimpleNamespace(details={"metric_type": metric})
-    nearest = {"column": "vector", "q": [[1.0, 0.0]], "k": 2}
-
-    assert _apply_index_metric_default(nearest, index)["metric"] == metric.lower()
-    assert (
-        _apply_index_metric_default({**nearest, "metric": "l2"}, index)["metric"]
-        == "l2"
-    )
-
-
-def test_partial_index_uses_index_metric_by_default(tmp_path):
-    indexed_vectors = np.asarray(
-        [[1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [-1.0, 0.0]],
-        dtype=np.float32,
-    )
-    appended_vectors = np.asarray([[0.5, 0.5], [-1.0, -1.0]], dtype=np.float32)
-    dataset = _create_partial_index_dataset(
-        tmp_path / "batch-partial-cosine.lance",
-        indexed_vectors,
-        appended_vectors,
-        metric="cosine",
-    )
-    queries = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
-
-    result = lr.vector_search(
-        dataset,
-        nearest={"column": "vector", "q": queries, "k": 3},
-        index_name="vector_idx",
-        columns=["id"],
-        num_workers=2,
-    )
-
-    assert result.column("query_index").to_pylist() == [0, 0, 0, 1, 1, 1]
-    assert result.column("id").to_pylist() == [0, 1, 4, 2, 1, 4]
-    assert result.column("_distance").to_pylist() == pytest.approx(
-        [0.0, 0.29289323, 0.29289323, 0.0, 0.29289323, 0.29289323]
-    )
