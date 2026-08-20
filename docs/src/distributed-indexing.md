@@ -266,6 +266,58 @@ def vector_search(
 
 The function returns a `pyarrow.Table` containing the global top-k rows sorted by `_distance`. If `analyze_plan=True`, it returns a `str` containing one Lance scanner analysis section per planned shard.
 
+
+#### Streaming vector search
+
+`open_vector_search()` creates snapshot-pinned Ray actors and accepts an iterable
+of query batches. Each actor keeps its Lance dataset, session, and assigned index
+segments alive for the session. Uncovered fragments are distributed across the
+same actors and scanned in record batches when `fast_search=False`.
+
+```python
+import lance_ray as lr
+
+with lr.open_vector_search(
+    uri="path/to/dataset.lance",
+    nearest={
+        "column": "embedding",
+        "k": 10,
+    },
+    columns=["id"],
+) as search:
+    for result_batch in search.map_batches(query_batch_reader):
+        write_results(result_batch)
+```
+
+`nearest["column"]` selects the vector column to search, while `columns`
+selects the fields returned for each match.
+
+`VectorSearchStreamingOptions` controls input rebatching and the number of
+in-flight query batches. `VectorSearchActorOptions` controls actor resources,
+micro-batching, scanner concurrency, cache sizes, and optional index prewarming.
+Lance query options such as `nprobes`, `query_parallelism`, `approx_mode`, and
+`refine_factor` can be supplied in `nearest`.
+
+`uri` and (`namespace_impl` + `table_id`) are alternative dataset sources.
+`branch` and `version` are mutually exclusive. The session pins the resolved
+snapshot for its lifetime. Passing an already checked-out `LanceDataset`
+preserves its current snapshot without requiring the branch name again.
+
+`fast_search=False` includes fragments not covered by the selected vector index.
+`fast_search=True` intentionally skips those fragments. The streaming API does
+not expose a second `include_unindexed` switch.
+
+Each emitted table has a non-null Int64 `query_index` whose value is the query's
+position across the entire input stream.
+
+For a fixed-size vector column, each input batch may be a NumPy array with shape
+`[B, D]` or an Arrow `FixedSizeList<D>` array; each row is one logical query and
+Core executes it as a batch. For a multivector column, each logical query has
+shape `[M_i, D]`. Supply an Arrow `List<FixedSizeList<D>>` array, a sequence of
+two-dimensional NumPy arrays, or `[B, M, D]` when every query has the same `M`.
+Lance-Ray adds the streaming `query_index` and merges indexed and
+uncovered-fragment candidates for each query.
+
 ## Examples
 
 ### FTS Index (Scalar)
