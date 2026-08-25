@@ -306,8 +306,7 @@ class TestLanceFragmentWriterCommitter:
         assert ds.count_rows() == 5
         tbl = ds.to_table()
         indices = pa.compute.sort_indices(tbl, sort_keys=[("id", "ascending")])
-        # pyarrow-stubs does not model taking rows of a Table by an index array.
-        tbl_sorted = pa.compute.take(tbl, indices)  # type: ignore[call-overload]
+        tbl_sorted = pa.compute.take(tbl, indices)
         assert tbl_sorted.column("doubled").to_pylist() == [0, 2, 4, 6, 8]
 
     @pytest.mark.filterwarnings("ignore::DeprecationWarning")
