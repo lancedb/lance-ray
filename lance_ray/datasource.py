@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import inspect
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Optional
+from functools import partial
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -93,11 +96,11 @@ class LanceDatasource(Datasource):
         self._fragment_ids = set(fragment_ids) if fragment_ids else None
         self._with_metadata = with_metadata
 
-        self._lance_ds = None
-        self._fragments = None
+        self._lance_ds: Optional[lance.LanceDataset] = None
+        self._fragments: Optional[list[lance.LanceFragment]] = None
 
     @property
-    def lance_dataset(self) -> "lance.LanceDataset":
+    def lance_dataset(self) -> lance.LanceDataset:
         if self._lance_ds is None:
             import lance
 
@@ -108,7 +111,7 @@ class LanceDatasource(Datasource):
                 self._namespace_impl, self._namespace_properties, self._table_id
             )
             dataset_options.update(ns_kwargs)
-            base_store_params_kwargs = {}
+            base_store_params_kwargs: dict[str, Any] = {}
             if self._base_store_params:
                 base_store_params_kwargs = {
                     "base_store_params": self._base_store_params
@@ -120,35 +123,39 @@ class LanceDatasource(Datasource):
         return self._lance_ds
 
     @property
-    def fragments(self) -> list["lance.LanceFragment"]:
+    def fragments(self) -> list[lance.LanceFragment]:
         if self._fragments is None:
-            self._fragments = self.lance_dataset.get_fragments() or []
+            fragments = self.lance_dataset.get_fragments() or []
             if self._fragment_ids:
-                self._fragments = [
-                    f for f in self._fragments if f.metadata.id in self._fragment_ids
+                fragments = [
+                    f for f in fragments if f.metadata.id in self._fragment_ids
                 ]
+            self._fragments = fragments
         return self._fragments
 
-    def _get_storage_options(self) -> dict[str, str] | None:
+    def _get_storage_options(self) -> Optional[dict[str, str]]:
+        dataset = self.lance_dataset
         try:
-            return self.lance_dataset.initial_storage_options
+            return dataset.initial_storage_options
         except AttributeError:
-            try:
-                return self._lance_ds._storage_options
-            except AttributeError:
-                return None
+            # pylance < 5 only exposes the private attribute.
+            return cast(
+                Optional[dict[str, str]], getattr(dataset, "_storage_options", None)
+            )
 
-    def _get_serialized_manifest(self) -> bytes | None:
+    def _get_serialized_manifest(self) -> Optional[bytes]:
         try:
-            return self._lance_ds._ds.serialized_manifest()
+            return self.lance_dataset._ds.serialized_manifest()
         except AttributeError:
             return None
 
-    def get_read_tasks(self, parallelism: int, **kwargs) -> list[ReadTask]:
+    def get_read_tasks(
+        self, parallelism: int, *args: Any, **kwargs: Any
+    ) -> list[ReadTask]:
         if not self.fragments:
             return []
 
-        read_tasks = []
+        read_tasks: list[ReadTask] = []
 
         # Extract dataset components for worker reconstruction.
         # We pass namespace_impl/properties/table_id instead of the provider object
@@ -172,22 +179,22 @@ class LanceDatasource(Datasource):
             scanner_options["fragments"] = fragments
             scanner_options["columns"] = []
             scanner_options["with_row_id"] = True
-            scanner = self._lance_ds.scanner(**scanner_options)
+            scanner = self.lance_dataset.scanner(**scanner_options)
             num_rows = scanner.count_rows()
 
             fragment_ids = [f.metadata.id for f in fragments]
-            input_files = [
+            input_files = tuple(
                 data_file.path
                 for fragment in fragments
                 for data_file in fragment.data_files()
-            ]
+            )
 
             # Ray 2.48+ no longer has the schema argument...
             if "schema" in inspect.signature(BlockMetadata.__init__).parameters:
                 # TODO(chengsu): Take column projection into consideration for schema.
                 metadata = BlockMetadata(
                     num_rows=num_rows,
-                    schema=fragments[0].schema,
+                    schema=fragments[0].schema,  # type: ignore[call-arg]
                     input_files=input_files,
                     size_bytes=None,
                     exec_stats=None,
@@ -200,33 +207,23 @@ class LanceDatasource(Datasource):
                     exec_stats=None,
                 )
 
+            # ``partial`` binds this iteration's fragment ids eagerly, which a
+            # closure over the loop variable would not do.
             read_task = ReadTask(
-                lambda fids=fragment_ids,
-                uri=dataset_uri,
-                version=dataset_version,
-                storage_options=dataset_storage_options,
-                manifest=serialized_manifest,
-                ns_impl=namespace_impl,
-                ns_props=namespace_properties,
-                tbl_id=table_id,
-                base_params=base_store_params,
-                scanner_options=self._scanner_options,
-                retry_params=self._retry_params,
-                with_metadata=self._with_metadata: (
-                    _read_fragments_with_retry(
-                        fids,
-                        uri,
-                        version,
-                        storage_options,
-                        manifest,
-                        ns_impl,
-                        ns_props,
-                        tbl_id,
-                        base_params,
-                        scanner_options,
-                        retry_params,
-                        with_metadata,
-                    )
+                partial(
+                    _read_fragments_with_retry,
+                    fragment_ids,
+                    dataset_uri,
+                    dataset_version,
+                    dataset_storage_options,
+                    serialized_manifest,
+                    namespace_impl,
+                    namespace_properties,
+                    table_id,
+                    base_store_params,
+                    self._scanner_options,
+                    self._retry_params,
+                    self._with_metadata,
                 ),
                 metadata,
             )
@@ -239,12 +236,15 @@ class LanceDatasource(Datasource):
         if not self.fragments:
             return 0
 
-        return sum(
+        # ``LanceFragment.data_files()`` is unannotated upstream, so pin the
+        # element type here instead of returning ``Any``.
+        file_sizes: list[int] = [
             data_file.file_size_bytes
             for fragment in self.fragments
             for data_file in fragment.data_files()
             if data_file.file_size_bytes is not None
-        )
+        ]
+        return sum(file_sizes)
 
 
 def _read_fragments_with_retry(
@@ -252,7 +252,7 @@ def _read_fragments_with_retry(
     uri: str,
     version: int,
     storage_options: Optional[dict[str, str]],
-    manifest: bytes,
+    manifest: Optional[bytes],
     namespace_impl: Optional[str],
     namespace_properties: Optional[dict[str, str]],
     table_id: Optional[list[str]],
@@ -264,7 +264,7 @@ def _read_fragments_with_retry(
     namespace_kwargs = get_namespace_kwargs(
         namespace_impl, namespace_properties, table_id
     )
-    base_store_params_kwargs = {}
+    base_store_params_kwargs: dict[str, Any] = {}
     if base_store_params:
         base_store_params_kwargs = {"base_store_params": base_store_params}
 
@@ -283,14 +283,16 @@ def _read_fragments_with_retry(
     lance_ds = lance.LanceDataset(**ds_kwargs)
 
     return call_with_retry(
-        lambda: _read_fragments(fragment_ids, lance_ds, scanner_options, with_metadata),
+        partial(
+            _read_fragments, fragment_ids, lance_ds, scanner_options, with_metadata
+        ),
         **retry_params,
     )
 
 
 def _read_fragments(
     fragment_ids: list[int],
-    lance_ds: "lance.LanceDataset",
+    lance_ds: lance.LanceDataset,
     scanner_options: dict[str, Any],
     with_metadata: bool = False,
 ) -> Iterator[pa.Table]:
@@ -319,7 +321,7 @@ def _read_fragments(
     # Map column name -> blob kind ("legacy" or "v2")
     blob_columns: dict[str, str] = {}
 
-    def _is_blob_field(f: pa.Field) -> Optional[str]:
+    def _is_blob_field(f: pa.Field[Any]) -> Optional[str]:
         """Detect Lance blob columns.
 
         Returns:
@@ -348,7 +350,7 @@ def _read_fragments(
             return None
 
         # pyarrow may store metadata keys/values as str
-        if (meta.get("lance-encoding:blob") == "true") or (
+        if (meta.get("lance-encoding:blob") == "true") or (  # type: ignore[call-overload]
             meta.get(b"lance-encoding:blob") == b"true"
         ):
             return "legacy"
@@ -387,7 +389,12 @@ def _read_fragments(
 
             if with_metadata and "_rowaddr" in table.column_names:
                 rowaddr_col = table.column("_rowaddr")
-                fragid_values = pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64())
+                # pyarrow-stubs has no overload for shifting an array by a
+                # plain Python int, and types the result as a scalar.
+                fragid_values = cast(
+                    "pa.ChunkedArray[Any]",
+                    pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),
+                )
                 table = table.append_column("_fragid", fragid_values)
 
             if not with_metadata:
@@ -406,7 +413,8 @@ def _read_fragments(
             # Safety: if row ids are missing for any reason, fall back to original
             yield table
             continue
-        row_ids = table.column("_rowid").to_pylist()
+        # ``_rowid`` is a non-nullable uint64 column, so every value is an int.
+        row_ids = cast("list[int]", table.column("_rowid").to_pylist())
 
         # For each blob column, reconstruct a LargeBinary array
         for col, kind in blob_columns.items():
@@ -464,6 +472,11 @@ def _read_fragments(
                             values.append(bytes(desc["bytes"]))
                             continue
 
+                    if blob_file is None:
+                        raise RuntimeError(
+                            "LanceDataset.take_blobs returned no blob for the "
+                            f"non-null row {len(values)} of column {col!r}"
+                        )
                     with blob_file as bf:
                         values.append(bf.read())
             else:
@@ -510,6 +523,11 @@ def _read_fragments(
                         raise RuntimeError(
                             "LanceDataset.take_blobs returned fewer blobs than expected"
                         ) from exc
+                    if blob_file is None:
+                        raise RuntimeError(
+                            "LanceDataset.take_blobs returned no blob for the "
+                            f"non-null row {len(values)} of column {col!r}"
+                        )
                     with blob_file as bf:
                         values.append(bf.read())
 
@@ -532,7 +550,12 @@ def _read_fragments(
 
         if with_metadata and "_rowaddr" in table.column_names:
             rowaddr_col = table.column("_rowaddr")
-            fragid_values = pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64())
+            # pyarrow-stubs has no overload for shifting an array by a
+            # plain Python int, and types the result as a scalar.
+            fragid_values = cast(
+                "pa.ChunkedArray[Any]",
+                pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),
+            )
             table = table.append_column("_fragid", fragid_values)
 
         for col in ("_rowid",):
