@@ -29,6 +29,7 @@ import pytest
 import ray
 
 import pandas as pd
+from _utils import to_numpy_backed
 
 # Skip cleanly if Lance isn't available in the environment
 pytest.importorskip("lance")
@@ -97,7 +98,7 @@ def test_single_blob_roundtrip(temp_dir: str) -> None:
 
     # Read back via lance-ray
     ds_read = lr.read_lance(str(path))
-    df = ds_read.to_pandas()
+    df = ds_read.to_pandas().pipe(to_numpy_backed)
 
     # Sort by id to ensure consistent order
     df_sorted = df.sort_values("id").reset_index(drop=True)
@@ -138,7 +139,7 @@ def test_multi_blob_roundtrip(temp_dir: str) -> None:
 
     # Read back via lance-ray
     ds_read = lr.read_lance(str(path))
-    df = ds_read.to_pandas()
+    df = ds_read.to_pandas().pipe(to_numpy_backed)
 
     # Sort by id to ensure consistent order
     df_sorted = df.sort_values("id").reset_index(drop=True)
@@ -177,7 +178,7 @@ def test_jpg_blob_integration(
 
     # Read back via lance-ray
     ds_read = lr.read_lance(str(path))
-    df = ds_read.to_pandas()
+    df = ds_read.to_pandas().pipe(to_numpy_backed)
     df_sorted = df.sort_values("id").reset_index(drop=True)
 
     # Validate blob bytes and other columns
@@ -227,7 +228,7 @@ def test_blob_projection_and_filter(temp_dir: str) -> None:
 
     # Read only blob column with a filter
     ds_read = lr.read_lance(str(path), columns=["blob"], filter="id >= 12")
-    df = ds_read.to_pandas()
+    df = ds_read.to_pandas().pipe(to_numpy_backed)
     assert df.columns.tolist() == ["blob"]
 
     # Expected values for id >= 12 -> ["c", "d"]
@@ -263,7 +264,7 @@ def test_multi_blob_projection_and_filter(temp_dir: str) -> None:
 
     # Read only blob columns with a filter on id
     ds_read = lr.read_lance(str(path), columns=["blob1", "blob2"], filter="id >= 2")
-    df = ds_read.to_pandas()
+    df = ds_read.to_pandas().pipe(to_numpy_backed)
     assert df.columns.tolist() == ["blob1", "blob2"]
 
     # Expected values for id >= 2 -> index 2,3,4
@@ -321,11 +322,16 @@ def test_stream_copy_basic_local(temp_dir: str) -> None:
     assert src.schema == dst.schema
 
     src_df = (
-        ray.data.from_arrow(table).to_pandas().sort_values("id").reset_index(drop=True)
+        ray.data.from_arrow(table)
+        .to_pandas()
+        .pipe(to_numpy_backed)
+        .sort_values("id")
+        .reset_index(drop=True)
     )
     dst_df = (
         lr.read_lance(str(dst_path))
         .to_pandas()
+        .pipe(to_numpy_backed)
         .sort_values("id")
         .reset_index(drop=True)
     )
@@ -375,11 +381,16 @@ def test_stream_copy_resume_local(temp_dir: str) -> None:
     )
 
     src_df = (
-        ray.data.from_arrow(table).to_pandas().sort_values("id").reset_index(drop=True)
+        ray.data.from_arrow(table)
+        .to_pandas()
+        .pipe(to_numpy_backed)
+        .sort_values("id")
+        .reset_index(drop=True)
     )
     dst_df = (
         lr.read_lance(str(dst_path))
         .to_pandas()
+        .pipe(to_numpy_backed)
         .sort_values("id")
         .reset_index(drop=True)
     )
