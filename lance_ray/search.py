@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
+from __future__ import annotations
+
 import inspect
 import logging
 import math
 import pickle
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -66,9 +68,9 @@ def _get_dataset_storage_options(dataset: LanceDataset) -> dict[str, Any]:
 
 def _get_fragment_id(fragment: Any) -> int:
     try:
-        return fragment.fragment_id
+        return cast(int, fragment.fragment_id)
     except AttributeError:
-        return fragment.metadata.id
+        return cast(int, fragment.metadata.id)
 
 
 def _index_value(index: Any, name: str, default: Any = None) -> Any:
@@ -225,7 +227,7 @@ def _pack_search_plan_units(
 
 @lru_cache(maxsize=16)
 def _load_pickled_dataset(pickled_dataset: bytes) -> LanceDataset:
-    return pickle.loads(pickled_dataset)
+    return cast(LanceDataset, pickle.loads(pickled_dataset))
 
 
 @lru_cache(maxsize=16)
@@ -392,7 +394,7 @@ def _get_nearest_metric(nearest: dict[str, Any]) -> str:
 
 
 def _compute_vector_distances(
-    vector_column: pa.ChunkedArray,
+    vector_column: pa.ChunkedArray[Any],
     query: Any,
     metric: str,
 ) -> Any:
@@ -432,7 +434,7 @@ def _compute_vector_distances(
     )
 
 
-def _vector_column_to_numpy(vector_column: pa.ChunkedArray) -> Any:
+def _vector_column_to_numpy(vector_column: pa.ChunkedArray[Any]) -> Any:
     import numpy as np
 
     values = vector_column.combine_chunks().to_pylist()
@@ -519,7 +521,7 @@ def _candidate_k(nearest: dict[str, Any], oversample_factor: float) -> tuple[int
 
 
 def vector_search(
-    uri: Optional[Union[str, "lance.LanceDataset"]] = None,
+    uri: Optional[str | lance.LanceDataset] = None,
     *,
     nearest: dict[str, Any],
     index_name: Optional[str] = None,
