@@ -393,7 +393,7 @@ def _read_fragments(
                 # plain Python int, and types the result as a scalar.
                 fragid_values = cast(
                     "pa.ChunkedArray[Any]",
-                    pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),  # type: ignore[call-overload]
+                    pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),
                 )
                 table = table.append_column("_fragid", fragid_values)
 
@@ -554,7 +554,7 @@ def _read_fragments(
             # plain Python int, and types the result as a scalar.
             fragid_values = cast(
                 "pa.ChunkedArray[Any]",
-                pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),  # type: ignore[call-overload]
+                pc.cast(pc.shift_right(rowaddr_col, 32), pa.uint64()),
             )
             table = table.append_column("_fragid", fragid_values)
 
