@@ -4,7 +4,7 @@ I/O operations for Lance-Ray integration.
 
 import pickle
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -35,6 +35,14 @@ if TYPE_CHECKING:
         | ReaderLike
         | Callable[[pa.RecordBatch], pa.RecordBatch]
     )
+
+    #: ``add_columns_from`` hands each batch to the transform as a mapping of
+    #: column name to a list of Python values, and expects only the new columns
+    #: back. See the ``add_columns_from`` docstring.
+    BatchDictTransform = Callable[
+        [dict[str, list[Any]]], dict[str, Any] | pa.RecordBatch | pa.Table
+    ]
+    TransformFromType = dict[str, str] | BatchUDF | ReaderLike | BatchDictTransform
 
 
 def read_lance(
@@ -136,11 +144,14 @@ def read_lance(
         with_metadata=with_metadata,
     )
 
-    return read_datasource(
-        datasource=datasource,
-        ray_remote_args=ray_remote_args or {},
-        concurrency=concurrency,
-        override_num_blocks=override_num_blocks,
+    return cast(
+        Dataset,
+        read_datasource(
+            datasource=datasource,
+            ray_remote_args=ray_remote_args or {},
+            concurrency=concurrency,
+            override_num_blocks=override_num_blocks,
+        ),
     )
 
 
@@ -294,7 +305,7 @@ def write_lance(
     dest_uri: str = uri
     dest_exists = False
     dest_version: Optional[int] = None
-    base_store_params_kwargs = {}
+    base_store_params_kwargs: dict[str, Any] = {}
     if base_store_params:
         base_store_params_kwargs = {"base_store_params": base_store_params}
 
@@ -327,7 +338,13 @@ def write_lance(
         batch_size=effective_batch_size, batch_format="pyarrow"
     ):
         # Convert to pyarrow.Table if needed.
-        tbl = batch if isinstance(batch, pa.Table) else pa.Table.from_pydict(batch)
+        # ``batch_format="pyarrow"`` yields ``pa.Table``; the mapping branch is
+        # only a safeguard for older Ray releases.
+        tbl = (
+            batch
+            if isinstance(batch, pa.Table)
+            else pa.Table.from_pydict(cast("dict[str, Any]", batch))
+        )
 
         # Apply resume_rows skipping across batches.
         if resume_rows > rows_seen:
@@ -366,14 +383,20 @@ def write_lance(
         frag_tbl = writer(tbl)
         fragments: list[Any] = []
         schema_obj: Optional[pa.Schema] = None
-        frag_col = frag_tbl.column("fragment").to_pylist()
-        sch_col = frag_tbl.column("schema").to_pylist()
+        frag_col = cast("list[bytes]", frag_tbl.column("fragment").to_pylist())
+        sch_col = cast("list[bytes]", frag_tbl.column("schema").to_pylist())
         for frag_bytes, schema_bytes in zip(frag_col, sch_col, strict=False):
             fragment = pickle.loads(frag_bytes)
             fragments.append(fragment)
             schema_obj = pickle.loads(schema_bytes)
 
+        if schema_obj is None:
+            raise RuntimeError(
+                "LanceFragmentWriter returned no fragments for a non-empty batch"
+            )
+
         # Commit after each batch.
+        op: LanceOperation.BaseOperation
         if not first_commit_done:
             # First commit: respect mode.
             if mode in ("create", "overwrite") or not dest_exists:
@@ -480,12 +503,12 @@ def _handle_fragment(
     namespace_impl: Optional[str] = None,
     namespace_properties: Optional[dict[str, str]] = None,
     table_id: Optional[list[str]] = None,
-):
+) -> Callable[[int], tuple[bytes, bytes]]:
     """
     Handle a fragment of a Lance dataset.
     """
 
-    def func(fragment_id: int):
+    def func(fragment_id: int) -> tuple[bytes, bytes]:
         namespace_kwargs = get_namespace_kwargs(
             namespace_impl, namespace_properties, table_id
         )
@@ -497,6 +520,8 @@ def _handle_fragment(
             **namespace_kwargs,
         )
         fragment = lance_ds.get_fragment(fragment_id)
+        if fragment is None:
+            raise ValueError(f"Fragment {fragment_id} does not exist in {uri}")
         fragment_meta, schema = fragment.merge_columns(
             transform, read_columns, batch_size, reader_schema
         )
@@ -635,7 +660,12 @@ def add_columns(
 
 
 def _derive_fragid_from_rowaddr(batch: pa.Table) -> pa.Table:
-    fragid = pc.cast(pc.shift_right(batch.column("_rowaddr"), 32), pa.uint64())
+    # pyarrow-stubs has no overload for shifting an array by a plain Python
+    # int, and types the result as a scalar.
+    fragid = cast(
+        "pa.ChunkedArray[Any]",
+        pc.cast(pc.shift_right(batch.column("_rowaddr"), 32), pa.uint64()),
+    )
     return batch.append_column("_fragid", fragid)
 
 
@@ -686,6 +716,8 @@ def _commit_with_retry(
                     raise
                 except Exception:
                     pass
+    if last_exc is None:  # pragma: no cover - the loop always sets it
+        raise RuntimeError("Commit failed without raising an exception")
     raise last_exc
 
 
@@ -717,7 +749,7 @@ def _fill_null_fragment(
 def add_columns_from(
     uri: Optional[str] = None,
     *,
-    transform: "TransformType",
+    transform: "TransformFromType",
     read_columns: Optional[list[str]] = None,
     read_version: Optional[int | str] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
@@ -792,6 +824,7 @@ def add_columns_from(
     def _wrap_transform(batch: pa.Table) -> pa.Table:
         rowaddr = batch.column("_rowaddr") if "_rowaddr" in batch.column_names else None
 
+        new_cols: dict[str, Any] | pa.Table | pa.RecordBatch | Any
         if isinstance(transform, dict):
             new_cols = transform
         elif isinstance(transform, BatchUDF):
@@ -817,7 +850,9 @@ def add_columns_from(
                 batch.schema, batch.to_batches(max_chunksize=batch_size)
             )
             result_batches = []
-            for rb in transform(reader):
+            # A reader-consuming callable is not part of ``TransformType``; the
+            # ``callable()`` branch above only covers the record-batch variant.
+            for rb in transform(reader):  # type: ignore[operator]
                 result_batches.append(rb)
             new_cols = pa.Table.from_batches(result_batches)
 
@@ -833,7 +868,9 @@ def add_columns_from(
 
         return new_table
 
-    ray_ds = ray_ds.map_batches(_wrap_transform, batch_format="pyarrow")
+    # ``batch_format="pyarrow"`` means the callable only ever sees ``pa.Table``,
+    # which is narrower than the union Ray's signature declares.
+    ray_ds = ray_ds.map_batches(_wrap_transform, batch_format="pyarrow")  # type: ignore[arg-type]
 
     merge_columns_from(
         uri,
@@ -927,7 +964,7 @@ def merge_columns_from(
 
     if "_fragid" not in ray_schema.names:
         ds = ds.map_batches(
-            _derive_fragid_from_rowaddr,
+            _derive_fragid_from_rowaddr,  # type: ignore[arg-type]
             batch_format="pyarrow",
         )
         ray_schema = ds.schema()
@@ -1041,7 +1078,7 @@ def merge_columns_from(
         map_groups_kwargs["ray_remote_args"] = ray_remote_args
 
     result_ds = ds.groupby("_fragid").map_groups(
-        _merge_one_fragment,
+        _merge_one_fragment,  # type: ignore[arg-type]
         batch_format="pyarrow",
         **map_groups_kwargs,
     )
