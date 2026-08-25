@@ -12,11 +12,12 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore
+else:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib
 
 LANCE_REPO = "lance-format/lance"
 
@@ -223,7 +224,7 @@ def determine_latest_tag(tags: Iterable[TagInfo]) -> TagInfo:
     return max(tags, key=lambda tag: tag.semver)
 
 
-def write_outputs(args: argparse.Namespace, payload: dict) -> None:
+def write_outputs(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     target = getattr(args, "github_output", None)
     if not target:
         return

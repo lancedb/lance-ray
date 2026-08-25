@@ -12,9 +12,13 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime
+from typing import Any, Optional
+
+#: A parsed ``git log`` entry: sha / message / author / email.
+Commit = dict[str, str]
 
 
-def get_github_api_data(url, token):
+def get_github_api_data(url: str, token: str) -> Optional[Any]:
     """Fetch data from GitHub API"""
     headers = {
         "Authorization": f"token {token}",
@@ -30,7 +34,7 @@ def get_github_api_data(url, token):
         return None
 
 
-def get_commits_since_last_tag(tag):
+def get_commits_since_last_tag(tag: str) -> tuple[list[Commit], Optional[str]]:
     """Get all commits since the last tag"""
     try:
         # Get the previous tag
@@ -67,7 +71,7 @@ def get_commits_since_last_tag(tag):
         if not commits:
             return [], previous_tag
 
-        commit_list = []
+        commit_list: list[Commit] = []
         for line in commits.split("\n"):
             if line:
                 parts = line.split("|")
@@ -88,9 +92,9 @@ def get_commits_since_last_tag(tag):
         return [], None
 
 
-def categorize_commits(commits):
+def categorize_commits(commits: list[Commit]) -> dict[str, list[Commit]]:
     """Categorize commits based on conventional commit format"""
-    categories = {
+    categories: dict[str, list[Commit]] = {
         "Features": [],
         "Bug Fixes": [],
         "Performance": [],
@@ -129,7 +133,7 @@ def categorize_commits(commits):
     return categories
 
 
-def extract_pr_number(message):
+def extract_pr_number(message: str) -> Optional[str]:
     """Extract PR number from commit message"""
     # Look for patterns like (#123) or #123
     match = re.search(r"#(\d+)", message)
@@ -138,7 +142,13 @@ def extract_pr_number(message):
     return None
 
 
-def generate_release_notes(tag, repo, token, commits, previous_tag):
+def generate_release_notes(
+    tag: str,
+    repo: str,
+    token: Optional[str],
+    commits: list[Commit],
+    previous_tag: Optional[str],
+) -> str:
     """Generate release notes in Markdown format"""
 
     notes = []
@@ -223,7 +233,7 @@ def generate_release_notes(tag, repo, token, commits, previous_tag):
     return "\n".join(notes)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Generate release notes")
     parser.add_argument("--tag", required=True, help="Release tag")
     parser.add_argument("--repo", required=True, help="GitHub repository (owner/repo)")

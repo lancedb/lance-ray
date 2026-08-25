@@ -12,7 +12,7 @@ from pathlib import Path
 
 def run_command(
     cmd: list[str], capture_output: bool = True
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Run a command and return the result."""
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=capture_output, text=True)
@@ -37,7 +37,7 @@ def get_current_version() -> str:
     raise ValueError("Could not find current_version in .bumpversion.toml")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Bump version in Python project using bump-my-version"
     )
