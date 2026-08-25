@@ -1,16 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import pyarrow as pa
+
+if TYPE_CHECKING:
+    from lance import LanceDataset
+    from lance.lance.schema import LanceField
 
 
 @dataclass(frozen=True)
 class ResolvedFieldPath:
     path: str
-    field: pa.Field
+    field: pa.Field[Any]
 
 
 @dataclass(frozen=True)
@@ -96,9 +102,16 @@ def resolve_arrow_field_path(schema: pa.Schema, path: str) -> ResolvedFieldPath:
     return ResolvedFieldPath(path=_canonical_segments(segments), field=field)
 
 
-def resolve_dataset_field_path(dataset: Any, path: str) -> ResolvedDatasetFieldPath:
+def resolve_dataset_field_path(
+    dataset: LanceDataset, path: str
+) -> ResolvedDatasetFieldPath:
     resolved = resolve_arrow_field_path(dataset.schema, path)
-    lance_field = dataset.lance_schema.field(resolved.path)
+    # ``LanceSchema.field()`` exists on the Rust extension type but is missing
+    # from pylance's ``lance/lance/schema.pyi`` stub. It takes a dotted field
+    # path and returns ``Optional[LanceField]``.
+    lance_field: Optional[LanceField] = dataset.lance_schema.field(  # type: ignore[attr-defined]
+        resolved.path
+    )
     if lance_field is None:
         raise KeyError(f"Field path {path!r} not found in Lance schema")
     return ResolvedDatasetFieldPath(
@@ -108,7 +121,7 @@ def resolve_dataset_field_path(dataset: Any, path: str) -> ResolvedDatasetFieldP
     )
 
 
-def _schema_field(schema: pa.Schema, name: str) -> pa.Field:
+def _schema_field(schema: pa.Schema, name: str) -> pa.Field[Any]:
     try:
         return schema.field(name)
     except KeyError as exc:
@@ -116,7 +129,7 @@ def _schema_field(schema: pa.Schema, name: str) -> pa.Field:
         raise KeyError(f"Field {name!r} not found. Available: {available}") from exc
 
 
-def _struct_child(data_type: pa.DataType, name: str) -> pa.Field:
+def _struct_child(data_type: pa.StructType, name: str) -> pa.Field[Any]:
     for child in data_type:
         if child.name == name:
             return child

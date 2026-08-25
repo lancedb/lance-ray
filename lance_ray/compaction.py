@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, cast
 
 import lance
 from lance.lance import CompactionMetrics
@@ -22,7 +23,7 @@ def _handle_compaction_task(
     namespace_impl: Optional[str] = None,
     namespace_properties: Optional[dict[str, str]] = None,
     table_id: Optional[list[str]] = None,
-):
+) -> Callable[[CompactionTask], dict[str, Any]]:
     """
     Create a function to handle compaction task execution for use with Pool.
     This function returns a callable that can be used with Pool.map_async
@@ -140,8 +141,10 @@ def compact_files(
     # Step 1: Create the compaction plan
     # Compaction.plan requires a dict; CompactionOptions is a TypedDict, so
     # an empty instance stands in for "all defaults" when the caller omits it.
+    # It is declared with ``total=True`` upstream even though every key is
+    # optional at runtime, hence the cast instead of ``CompactionOptions()``.
     compaction_plan = Compaction.plan(
-        dataset, compaction_options or CompactionOptions()
+        dataset, compaction_options or cast(CompactionOptions, {})
     )
 
     logger.info(f"Compaction plan created with {compaction_plan.num_tasks()} tasks")
