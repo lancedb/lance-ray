@@ -664,7 +664,7 @@ def _derive_fragid_from_rowaddr(batch: pa.Table) -> pa.Table:
     # int, and types the result as a scalar.
     fragid = cast(
         "pa.ChunkedArray[Any]",
-        pc.cast(pc.shift_right(batch.column("_rowaddr"), 32), pa.uint64()),  # type: ignore[call-overload]
+        pc.cast(pc.shift_right(batch.column("_rowaddr"), 32), pa.uint64()),
     )
     return batch.append_column("_fragid", fragid)
 
