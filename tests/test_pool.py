@@ -1,19 +1,23 @@
 import logging
+from typing import Any, Optional
 
+import pytest
 from lance_ray import pool as pool_mod
 
 
-def test_init_global_pool_reuses_existing_pool(monkeypatch):
-    events = []
+def test_init_global_pool_reuses_existing_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str | tuple[str, int, Optional[dict[str, Any]]]] = []
 
     class FakePool:
-        def __init__(self, processes, ray_remote_args):
+        def __init__(
+            self, processes: int, ray_remote_args: Optional[dict[str, Any]]
+        ) -> None:
             events.append(("init", processes, ray_remote_args))
 
-        def close(self):
+        def close(self) -> None:
             events.append("close")
 
-        def join(self):
+        def join(self) -> None:
             events.append("join")
 
     pool_mod.clear_global_pool()
@@ -39,11 +43,15 @@ def test_init_global_pool_reuses_existing_pool(monkeypatch):
     ]
 
 
-def test_init_global_pool_warns_when_existing_pool_size_differs(monkeypatch, caplog):
-    events = []
+def test_init_global_pool_warns_when_existing_pool_size_differs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    events: list[tuple[str, int, Optional[dict[str, Any]]]] = []
 
     class FakePool:
-        def __init__(self, processes, ray_remote_args):
+        def __init__(
+            self, processes: int, ray_remote_args: Optional[dict[str, Any]] = None
+        ) -> None:
             events.append(("init", processes, ray_remote_args))
 
     pool_mod.clear_global_pool()
@@ -59,7 +67,9 @@ def test_init_global_pool_warns_when_existing_pool_size_differs(monkeypatch, cap
     pool_mod.clear_global_pool()
 
 
-def test_get_or_create_pool_warns_when_global_pool_size_differs(caplog):
+def test_get_or_create_pool_warns_when_global_pool_size_differs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     class FakePool:
         processes = 4
 
@@ -77,14 +87,14 @@ def test_get_or_create_pool_warns_when_global_pool_size_differs(caplog):
     assert "requested 16 workers will be ignored" in caplog.text
 
 
-def test_set_global_pool_can_clear_without_closing():
-    events = []
+def test_set_global_pool_can_clear_without_closing() -> None:
+    events: list[str] = []
 
     class FakePool:
-        def close(self):
+        def close(self) -> None:
             events.append("close")
 
-        def join(self):
+        def join(self) -> None:
             events.append("join")
 
     pool = FakePool()

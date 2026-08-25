@@ -7,7 +7,7 @@ from lance_ray.field_path import (
 )
 
 
-def _nested_schema():
+def _nested_schema() -> pa.Schema:
     return pa.schema(
         [
             pa.field("id", pa.int64()),
@@ -31,20 +31,20 @@ def _nested_schema():
     )
 
 
-def test_parse_field_path_supports_quoted_literal_dot_segments():
+def test_parse_field_path_supports_quoted_literal_dot_segments() -> None:
     assert parse_field_path("meta.`a.b`") == ["meta", "a.b"]
     assert parse_field_path("`meta`.`userId`") == ["meta", "userId"]
     assert parse_field_path("meta.`a``b`") == ["meta", "a`b"]
 
 
-def test_canonical_field_path_matches_lance_formatting_rules():
+def test_canonical_field_path_matches_lance_formatting_rules() -> None:
     assert canonical_field_path("`meta`.`userId`") == "meta.userId"
     assert canonical_field_path("meta.`a.b`") == "meta.`a.b`"
     assert canonical_field_path("`meta-data`.`user-id`") == "`meta-data`.`user-id`"
     assert canonical_field_path("meta.`a``b`") == "meta.`a``b`"
 
 
-def test_resolve_arrow_field_path_supports_nested_and_literal_dot():
+def test_resolve_arrow_field_path_supports_nested_and_literal_dot() -> None:
     schema = _nested_schema()
 
     assert resolve_arrow_field_path(schema, "meta.userId").field.name == "userId"
@@ -58,7 +58,7 @@ def test_resolve_arrow_field_path_supports_nested_and_literal_dot():
     assert resolved_hyphen.field.name == "user-id"
 
 
-def test_resolve_arrow_field_path_requires_disambiguated_same_leaf_name():
+def test_resolve_arrow_field_path_requires_disambiguated_same_leaf_name() -> None:
     schema = _nested_schema()
 
     with pytest.raises(KeyError):
@@ -68,7 +68,7 @@ def test_resolve_arrow_field_path_requires_disambiguated_same_leaf_name():
     assert resolve_arrow_field_path(schema, "other.leaf").field.name == "leaf"
 
 
-def test_parse_field_path_rejects_malformed_quoted_paths():
+def test_parse_field_path_rejects_malformed_quoted_paths() -> None:
     with pytest.raises(ValueError, match="unterminated"):
         parse_field_path("meta.`a.b")
     with pytest.raises(ValueError, match="empty path segment"):
