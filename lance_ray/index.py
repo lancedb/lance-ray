@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
+from __future__ import annotations
+
 import logging
 import math
 import uuid
 from collections.abc import Callable
-from typing import Any, Literal, Optional, TypeAlias, Union, get_args
+from typing import Any, Literal, Optional, TypeAlias, cast, get_args
 
 import lance
 import pyarrow as pa
@@ -26,13 +28,18 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+# Spelled as strings because pyarrow's classes are not subscriptable at
+# runtime, only in the stubs.
 _VectorIndexArtifact: TypeAlias = (
-    pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray | None
+    "pa.Array[Any] | pa.FixedSizeListArray[Any] | pa.FixedShapeTensorArray[Any] | None"
 )
-_VectorIndexArtifactRef: TypeAlias = _VectorIndexArtifact | ray.ObjectRef
-_VectorIndexArtifactRefs: TypeAlias = tuple[
-    _VectorIndexArtifactRef, _VectorIndexArtifactRef
-]
+_VectorIndexArtifactRef: TypeAlias = "_VectorIndexArtifact | ray.ObjectRef[Any]"
+_VectorIndexArtifactRefs: TypeAlias = (
+    "tuple[_VectorIndexArtifactRef, _VectorIndexArtifactRef]"
+)
+
+#: The closure a fragment handler factory hands to the worker pool.
+_FragmentHandler: TypeAlias = Callable[[list[int]], dict[str, Any]]
 
 
 def _dataset_load_kwargs(
@@ -132,7 +139,7 @@ def _distribute_fragments_balanced(
 
 
 def _map_async_with_pool(
-    create_fragment_handler: Callable[[], Any],
+    create_fragment_handler: Callable[[], _FragmentHandler],
     fragment_batches: list[list[int]],
     *,
     num_workers: int,
@@ -153,7 +160,7 @@ def _map_async_with_pool(
             fragment_batches,
             chunksize=1,
         )
-        results = rst_futures.get()
+        results: list[dict[str, Any]] = rst_futures.get()
     except Exception as exc:  # pragma: no cover - exercised via integration tests
         raise RuntimeError(f"{error_prefix}: {exc}") from exc
     finally:
@@ -180,19 +187,19 @@ def _is_ray_object_ref(value: Any) -> bool:
 
 def _ray_put_index_artifact(value: Any) -> _VectorIndexArtifactRef:
     if value is None or _is_ray_object_ref(value):
-        return value
+        return cast("_VectorIndexArtifactRef", value)
     return ray.put(value)
 
 
 def _ray_get_index_artifact(value: Any) -> _VectorIndexArtifact:
     if _is_ray_object_ref(value):
-        return ray.get(value)
-    return value
+        return cast("_VectorIndexArtifact", ray.get(value))
+    return cast("_VectorIndexArtifact", value)
 
 
 def _put_vector_index_artifacts_in_object_store(
-    ivf_centroids: pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray | None,
-    pq_codebook: pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray | None,
+    ivf_centroids: _VectorIndexArtifact,
+    pq_codebook: _VectorIndexArtifact,
 ) -> _VectorIndexArtifactRefs:
     return (
         _ray_put_index_artifact(ivf_centroids),
@@ -239,7 +246,7 @@ def _scalar_index_type_name(index_type: str | IndexConfig) -> str | None:
 def _handle_scalar_segment_index(
     dataset_uri: str,
     column: str,
-    index_type: str | IndexConfig,
+    index_type: _ScalarIndexType | IndexConfig,
     name: str,
     replace: bool,
     train: bool,
@@ -249,7 +256,7 @@ def _handle_scalar_segment_index(
     namespace_properties: Optional[dict[str, str]] = None,
     table_id: Optional[list[str]] = None,
     **kwargs: Any,
-):
+) -> _FragmentHandler:
     """Create a fragment handler closure for scalar segment index builds."""
 
     def func(fragment_ids: list[int]) -> dict[str, Any]:
@@ -282,7 +289,9 @@ def _handle_scalar_segment_index(
 
             segment_index = dataset.create_index_uncommitted(
                 column=column,
-                index_type=index_type,
+                # pylance annotates this as ``str`` but accepts an
+                # ``IndexConfig`` too (see ``_prepare_scalar_index_request``).
+                index_type=index_type,  # type: ignore[arg-type]
                 name=name,
                 replace=replace,
                 train=train,
@@ -320,7 +329,7 @@ def _handle_scalar_segment_index(
 def _handle_fragment_index(
     dataset_uri: str,
     column: str,
-    index_type: str | IndexConfig,
+    index_type: _ScalarIndexType | IndexConfig,
     name: str,
     index_uuid: str,
     replace: bool,
@@ -331,7 +340,7 @@ def _handle_fragment_index(
     namespace_properties: Optional[dict[str, str]] = None,
     table_id: Optional[list[str]] = None,
     **kwargs: Any,
-):
+) -> _FragmentHandler:
     """Create a fragment handler closure for scalar index builds.
 
     The returned callable can be used with :func:`Pool.map_async` to build
@@ -407,18 +416,23 @@ def _handle_fragment_index(
     return func
 
 
-def merge_index_metadata_compat(dataset, index_id, index_type, **kwargs):
+def merge_index_metadata_compat(
+    dataset: LanceDataset,
+    index_id: str,
+    index_type: str,
+    **kwargs: Any,
+) -> Any:
     """Call ``merge_index_metadata`` with backwards compatible signature."""
     try:
         return dataset.merge_index_metadata(
             index_id, index_type, batch_readhead=kwargs.get("batch_readhead")
         )
     except TypeError:
-        return dataset.merge_index_metadata(index_id)
+        return dataset.merge_index_metadata(index_id)  # type: ignore[call-arg]
 
 
 def create_scalar_index(
-    uri: Optional[Union[str, "lance.LanceDataset"]] = None,
+    uri: Optional[str | lance.LanceDataset] = None,
     *,
     column: str,
     index_type: _ScalarIndexType | IndexConfig,
@@ -436,7 +450,7 @@ def create_scalar_index(
     namespace_properties: Optional[dict[str, str]] = None,
     ray_remote_args: Optional[dict[str, Any]] = None,
     **kwargs: Any,
-) -> "lance.LanceDataset":
+) -> lance.LanceDataset:
     """Build scalar indices with Ray in a distributed workflow.
 
     Args:
@@ -818,9 +832,9 @@ _VECTOR_INDEX_TYPES = {
 }
 
 
-def _vector_dimension(field: pa.Field) -> int:
+def _vector_dimension(field: pa.Field[Any]) -> int:
     if pa.types.is_fixed_size_list(field.type):
-        return field.type.list_size
+        return int(field.type.list_size)
     if isinstance(field.type, pa.FixedShapeTensorType) and len(field.type.shape) == 1:
         return field.type.shape[0]
     raise TypeError(
@@ -829,7 +843,7 @@ def _vector_dimension(field: pa.Field) -> int:
     )
 
 
-def _validate_vector_value_type(field: pa.Field) -> None:
+def _validate_vector_value_type(field: pa.Field[Any]) -> None:
     value_type = field.type.value_type
     if not (
         pa.types.is_floating(value_type) or pa.types.is_unsigned_integer(value_type)
@@ -848,7 +862,7 @@ def _schema_names(schema: pa.Schema) -> list[str]:
 
 
 class _NestedVectorIndicesBuilder:
-    def __init__(self, dataset: LanceDataset, column: str, field: pa.Field):
+    def __init__(self, dataset: LanceDataset, column: str, field: pa.Field[Any]):
         self.dataset = dataset
         self.column = column
         self.dimension = _vector_dimension(field)
@@ -918,7 +932,13 @@ class _NestedVectorIndicesBuilder:
             fragment_ids,
             num_bits=num_bits,
         )
-        return PqModel(num_subvectors, codebook, num_bits=num_bits)
+        # ``train_pq_model`` is annotated as returning a generic ``pa.Array``
+        # upstream, but always produces a fixed-size-list codebook.
+        return PqModel(
+            num_subvectors,
+            cast("pa.FixedSizeListArray[Any]", codebook),
+            num_bits=num_bits,
+        )
 
 
 def _count_rows_for_fragments(
@@ -1021,7 +1041,7 @@ def _verify_pq_sample_rate(num_rows: int, sample_rate: int, num_bits: int = 8) -
 def _indices_builder_for_field_path(
     dataset: LanceDataset,
     column: str,
-    field: pa.Field,
+    field: pa.Field[Any],
 ) -> IndicesBuilder | _NestedVectorIndicesBuilder:
     if column in _schema_names(dataset.schema):
         return IndicesBuilder(dataset, column)
@@ -1127,8 +1147,8 @@ def _handle_vector_fragment_index(
     metric: str,
     num_partitions: Optional[int],
     num_sub_vectors: Optional[int],
-    ivf_centroids: pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray | None,
-    pq_codebook: pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray | None,
+    ivf_centroids: _VectorIndexArtifactRef,
+    pq_codebook: _VectorIndexArtifactRef,
     sample_rate: int = 256,
     storage_options: Optional[dict[str, str]] = None,
     block_size: Optional[int] = None,
@@ -1136,7 +1156,7 @@ def _handle_vector_fragment_index(
     namespace_properties: Optional[dict[str, str]] = None,
     table_id: Optional[list[str]] = None,
     **kwargs: Any,
-):
+) -> _FragmentHandler:
     """Create a fragment handler closure for vector index builds."""
 
     def func(fragment_ids: list[int]) -> dict[str, Any]:
@@ -1176,8 +1196,11 @@ def _handle_vector_fragment_index(
                 metric=metric,
                 replace=replace,
                 num_partitions=num_partitions,
-                ivf_centroids=resolved_ivf_centroids,
-                pq_codebook=resolved_pq_codebook,
+                # pylance accepts a numpy array or a fixed-size-list/tensor
+                # array here; lance-ray also allows the ``pa.Array`` base type,
+                # which centroid/codebook arrays always satisfy at runtime.
+                ivf_centroids=resolved_ivf_centroids,  # type: ignore[arg-type]
+                pq_codebook=resolved_pq_codebook,  # type: ignore[arg-type]
                 num_sub_vectors=num_sub_vectors,
                 sample_rate=sample_rate,
                 storage_options=storage_options,
@@ -1214,7 +1237,7 @@ def _handle_vector_fragment_index(
 
 
 def create_index(
-    uri: Optional[Union[str, "lance.LanceDataset"]] = None,
+    uri: Optional[str | lance.LanceDataset] = None,
     column: str = "",
     index_type: str | Any = "",
     name: Optional[str] = None,
@@ -1232,15 +1255,11 @@ def create_index(
     num_partitions: Optional[int] = None,
     num_sub_vectors: Optional[int] = None,
     sample_rate: int = 256,
-    ivf_centroids: Optional[
-        pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray
-    ] = None,
-    pq_codebook: Optional[
-        pa.Array | pa.FixedSizeListArray | pa.FixedShapeTensorArray
-    ] = None,
+    ivf_centroids: _VectorIndexArtifact = None,
+    pq_codebook: _VectorIndexArtifact = None,
     rabitq_model: Optional[str] = None,
     **kwargs: Any,
-) -> "lance.LanceDataset":
+) -> lance.LanceDataset:
     """Build distributed vector indices with Ray.
 
     This function mirrors :func:`create_scalar_index` but targets the precise
@@ -1560,7 +1579,7 @@ def optimize_indices(
     namespace_impl: Optional[str] = None,
     namespace_properties: Optional[dict[str, str]] = None,
     **kwargs: Any,
-) -> "lance.LanceDataset":
+) -> lance.LanceDataset:
     """Optimize indices for newly added data (incremental index update).
 
     As new data arrives it is not added to existing indexes automatically.
