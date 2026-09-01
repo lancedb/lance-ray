@@ -164,6 +164,7 @@ def write_lance(
     mode: Literal["create", "append", "overwrite"] = "create",
     min_rows_per_file: int = 1024 * 1024,
     max_rows_per_file: int = 64 * 1024 * 1024,
+    max_bytes_per_file: Optional[int] = None,
     data_storage_version: Optional[str] = None,
     enable_stable_row_ids: bool = False,
     storage_options: Optional[dict[str, Any]] = None,
@@ -217,6 +218,8 @@ def write_lance(
         mode: The write mode. Can be "create", "append", or "overwrite".
         min_rows_per_file: The minimum number of rows per file.
         max_rows_per_file: The maximum number of rows per file.
+        max_bytes_per_file: The maximum number of bytes per file. This is a soft
+            limit. If not provided, the PyLance default is used.
         data_storage_version: The version of the data storage format to use. Newer versions are more
             efficient but require newer versions of lance to read.  The default is
             "legacy" which will use the legacy v1 version.  See the user guide
@@ -269,6 +272,7 @@ def write_lance(
             mode=mode,
             min_rows_per_file=min_rows_per_file,
             max_rows_per_file=max_rows_per_file,
+            max_bytes_per_file=max_bytes_per_file,
             data_storage_version=data_storage_version,
             enable_stable_row_ids=enable_stable_row_ids,
             storage_options=storage_options,
@@ -367,6 +371,7 @@ def write_lance(
             uri=dest_uri,
             schema=schema,  # if None, writer infers from first batch (preserves Arrow metadata)
             max_rows_per_file=max_rows_per_file,
+            max_bytes_per_file=max_bytes_per_file,
             max_rows_per_group=min_rows_per_file,  # keep naming aligned with v1 semantics
             data_storage_version=data_storage_version,
             enable_stable_row_ids=enable_stable_row_ids,

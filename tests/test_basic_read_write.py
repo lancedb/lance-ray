@@ -92,6 +92,32 @@ class TestWriteLance:
         lr.write_lance(dataset, str(path), schema=schema)
         assert path.exists()
 
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_write_lance_with_max_bytes_per_file(
+        self, temp_dir: str, stream: bool
+    ) -> None:
+        path = Path(temp_dir) / f"max_bytes_{stream}.lance"
+        schema = pa.schema([pa.field("value", pa.string())])
+        batches = [
+            pa.record_batch([pa.array(["0" * 1024] * (1024 * 8))], schema=schema),
+            pa.record_batch([pa.array(["1" * 1024] * (1024 * 8))], schema=schema),
+        ]
+        table = pa.Table.from_batches(batches)
+
+        lr.write_lance(
+            ray.data.from_arrow(table),
+            str(path),
+            min_rows_per_file=512,
+            max_rows_per_file=table.num_rows,
+            max_bytes_per_file=1024,
+            stream=stream,
+            batch_size=table.num_rows,
+        )
+
+        dataset = lance.dataset(str(path))
+        assert dataset.count_rows() == table.num_rows
+        assert len(dataset.get_fragments()) > 1
+
     def test_write_lance_invalid_input(self, temp_dir: str) -> None:
         """Test error handling for invalid inputs."""
         path = Path(temp_dir) / "invalid.lance"

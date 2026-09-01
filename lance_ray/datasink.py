@@ -275,6 +275,9 @@ class LanceDatasink(_BaseLanceDatasink):
             The minimum number of rows per file. Default is 1024 * 1024.
         max_rows_per_file : int, optional
             The maximum number of rows per file. Default is 64 * 1024 * 1024.
+        max_bytes_per_file : int, optional
+            The maximum number of bytes per file. This is a soft limit. If not
+            provided, the PyLance default is used.
         data_storage_version: optional, str, default None
             The version of the data storage format to use. Newer versions are more
             efficient but require newer versions of lance to read.  The default is
@@ -323,6 +326,7 @@ class LanceDatasink(_BaseLanceDatasink):
         mode: Literal["create", "append", "overwrite"] = "create",
         min_rows_per_file: int = 1024 * 1024,
         max_rows_per_file: int = 64 * 1024 * 1024,
+        max_bytes_per_file: Optional[int] = None,
         data_storage_version: Optional[str] = None,
         enable_stable_row_ids: bool = False,
         storage_options: Optional[dict[str, Any]] = None,
@@ -369,6 +373,7 @@ class LanceDatasink(_BaseLanceDatasink):
             )
         self.min_rows_per_file = min_rows_per_file
         self.max_rows_per_file = max_rows_per_file
+        self.max_bytes_per_file = max_bytes_per_file
         self.data_storage_version = data_storage_version
         self.external_blob_mode = external_blob_mode
         self.allow_external_blob_outside_bases = allow_external_blob_outside_bases
@@ -402,6 +407,7 @@ class LanceDatasink(_BaseLanceDatasink):
             self.dataset_uri,
             schema=self.schema,
             max_rows_per_file=self.max_rows_per_file,
+            max_bytes_per_file=self.max_bytes_per_file,
             data_storage_version=self.data_storage_version,
             enable_stable_row_ids=self.enable_stable_row_ids,
             storage_options=self.storage_options,
