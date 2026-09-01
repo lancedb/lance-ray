@@ -2,9 +2,10 @@
 I/O operations for Lance-Ray integration.
 """
 
+import logging
 import pickle
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -12,10 +13,15 @@ import ray
 from lance.dataset import LanceDataset, LanceOperation
 from lance.udf import BatchUDF
 from ray.data import Dataset, read_datasource
+from ray.data.block import DataBatch
 from ray.util.multiprocessing import Pool
 
 from .datasink import LanceDatasink
-from .datasource import LanceDatasource
+from .datasource import (
+    LanceDatasource,
+    dataset_identity,
+    parse_source_provenance,
+)
 from .fragment import prepare_fragment_write_options
 from .utils import (
     get_namespace_kwargs,
@@ -25,6 +31,22 @@ from .utils import (
     resolve_namespace_table,
     validate_uri_or_namespace,
 )
+
+logger = logging.getLogger(__name__)
+
+
+class _LogicalSource(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+class _LogicalPlanWithSources(Protocol):
+    def sources(self) -> list[_LogicalSource]: ...
+
+
+class _DatasetWithLogicalPlan(Protocol):
+    _logical_plan: _LogicalPlanWithSources
+
 
 if TYPE_CHECKING:
     from lance.types import ReaderLike
@@ -122,7 +144,8 @@ def read_lance(
         with_metadata: If True, include ``_rowaddr`` and ``_fragid`` columns in the
             output. ``_rowaddr`` is a ``UInt64`` encoding ``(fragment_id << 32) |
             row_offset``. ``_fragid`` is the fragment ID derived from ``_rowaddr``.
-            These columns are needed for :func:`add_columns_from`. Default is False.
+            These columns are needed for :func:`add_columns_from` and
+            :func:`update_columns_from`. Default is False.
 
     Returns:
         A :class:`~ray.data.Dataset` producing records read from the Lance dataset.
@@ -144,7 +167,8 @@ def read_lance(
         with_metadata=with_metadata,
     )
 
-    return cast(
+    datasource.pin_source_version()
+    dataset = cast(
         Dataset,
         read_datasource(
             datasource=datasource,
@@ -153,6 +177,39 @@ def read_lance(
             override_num_blocks=override_num_blocks,
         ),
     )
+    return dataset
+
+
+def _source_provenance_from_dataset_lineage(
+    ds: Dataset,
+) -> tuple[int, str] | None:
+    """Return unique Lance version and identity when every logical source is Lance."""
+    logical_plan = cast(_DatasetWithLogicalPlan, ds)._logical_plan
+    sources = logical_plan.sources()
+    if not sources:
+        return None
+
+    source_versions: set[int] = set()
+    source_identities: set[str] = set()
+    for source in sources:
+        provenance = parse_source_provenance(source.name)
+        if provenance is None:
+            return None
+        version, identity = provenance
+        source_versions.add(version)
+        source_identities.add(identity)
+
+    if len(source_identities) > 1:
+        raise ValueError(
+            "Input Dataset combines multiple Lance source datasets. "
+            "Use rows from one source dataset."
+        )
+    if len(source_versions) > 1:
+        raise ValueError(
+            "Input Dataset combines multiple Lance source versions: "
+            f"{sorted(source_versions)}. Use rows from one source version."
+        )
+    return next(iter(source_versions)), next(iter(source_identities))
 
 
 def write_lance(
@@ -1175,6 +1232,418 @@ def merge_columns_from(
         storage_options=storage_options,
         namespace_kwargs=namespace_kwargs,
         original_fragments=fragments_in_lance,
+    )
+
+
+def update_columns_from(
+    uri: Optional[str] = None,
+    ds: Optional[Dataset] = None,
+    *,
+    columns: list[str],
+    read_version: Optional[int | str] = None,
+    ray_remote_args: Optional[dict[str, Any]] = None,
+    storage_options: Optional[dict[str, Any]] = None,
+    namespace_impl: Optional[str] = None,
+    namespace_properties: Optional[dict[str, str]] = None,
+    table_id: Optional[list[str]] = None,
+    batch_size: int = 1024,
+) -> None:
+    """Update existing columns in a Lance dataset using row metadata.
+
+    Unlike :func:`merge_columns_from`, which adds new columns, this function
+    updates existing columns by matching ``_rowaddr`` inside each fragment.
+    The source Ray Dataset must contain ``_rowaddr`` and every column listed
+    in ``columns``. If ``_fragid`` is absent, it is derived from ``_rowaddr``.
+    If supplied, ``_fragid`` must match the fragment encoded in ``_rowaddr``.
+    Row addresses must be non-null, unique integer values and are normalized
+    to ``uint64``. Update column names must be unique and their Arrow types
+    must match the target columns.
+    Unmatched source rows are ignored. Before grouping, the source is projected
+    to ``_rowaddr``, ``_fragid``, and the requested update columns. The final
+    operation is committed once; commit conflicts are returned to the caller
+    without retrying stale work. When source lineage is present, the source
+    dataset identity must match the update target.
+
+    Examples:
+        >>> import lance_ray as lr
+        >>> source = lr.read_lance("/tmp/data/", with_metadata=True)
+        >>> source = source.map_batches(modify_status)  # preserve metadata
+        >>> lr.update_columns_from(
+        ...     "/tmp/data/",
+        ...     source,
+        ...     columns=["status"],
+        ... )
+
+    Args:
+        uri: Path to the Lance dataset. If omitted, provide ``namespace_impl``
+            and ``table_id`` to resolve the location from the namespace.
+        ds: Ray Dataset containing ``_rowaddr`` and the columns to update.
+            ``_fragid`` is derived from ``_rowaddr`` when absent and validated
+            against it when supplied.
+        columns: Existing columns to update. Metadata columns cannot be used.
+        read_version: Dataset version to update. Defaults to the unique Lance
+            source version retained in the Ray Dataset's logical lineage. It is
+            required when that lineage is unavailable, such as after
+            materializing the source. When lineage is present, the source
+            dataset identity must match the update target.
+        ray_remote_args: Options passed to Ray Data ``map_groups``.
+        storage_options: Storage options used to open the dataset.
+        namespace_impl: Namespace implementation type, such as ``"dir"`` or
+            ``"rest"``.
+        namespace_properties: Namespace connection properties.
+        table_id: Table identifier used with namespace parameters.
+        batch_size: Batch size for the update reader. Must be positive.
+    """
+    if ds is None:
+        raise ValueError("'ds' must be provided")
+    if not columns:
+        raise ValueError("'columns' must be non-empty")
+    if batch_size <= 0:
+        raise ValueError("'batch_size' must be positive")
+
+    seen_columns: set[str] = set()
+    duplicate_columns: set[str] = set()
+    for column in columns:
+        if column in seen_columns:
+            duplicate_columns.add(column)
+        else:
+            seen_columns.add(column)
+    if duplicate_columns:
+        raise ValueError(
+            f"Duplicate columns are not allowed: {sorted(duplicate_columns)}"
+        )
+
+    metadata_columns = {"_rowaddr", "_fragid", "_rowid"}
+    invalid_columns = [column for column in columns if column in metadata_columns]
+    if invalid_columns:
+        raise ValueError(
+            f"Metadata columns cannot be updated: {sorted(invalid_columns)}"
+        )
+
+    validate_uri_or_namespace(uri, namespace_impl, table_id)
+
+    uri, storage_options = resolve_namespace_table(
+        uri,
+        storage_options,
+        namespace_impl,
+        namespace_properties,
+        table_id,
+    )
+    namespace_kwargs = get_namespace_kwargs(
+        namespace_impl, namespace_properties, table_id
+    )
+
+    if not ds.take(1):
+        logger.warning(
+            "No rows to update; update_columns_from completed without changes."
+        )
+        return
+
+    ray_schema = ds.schema()
+    if ray_schema is None:
+        logger.warning(
+            "No rows to update; update_columns_from completed without changes."
+        )
+        return
+    if "_rowaddr" not in ray_schema.names:
+        raise ValueError(
+            "Input Dataset must contain '_rowaddr'. "
+            "Use read_lance(uri, with_metadata=True) to include row metadata."
+        )
+
+    source_types = dict(zip(ray_schema.names, ray_schema.types, strict=True))
+    rowaddr_type = source_types["_rowaddr"]
+    if not (
+        isinstance(rowaddr_type, pa.DataType) and pa.types.is_integer(rowaddr_type)
+    ):
+        raise ValueError(
+            "Input Dataset '_rowaddr' must have an integer type, "
+            f"but found {rowaddr_type}."
+        )
+
+    has_fragid = "_fragid" in ray_schema.names
+    if has_fragid:
+        fragid_type = source_types["_fragid"]
+        if not (
+            isinstance(fragid_type, pa.DataType) and pa.types.is_integer(fragid_type)
+        ):
+            raise ValueError(
+                "Input Dataset '_fragid' must have an integer type, "
+                f"but found {fragid_type}."
+            )
+
+    source_names = set(ray_schema.names)
+    missing_columns = [column for column in columns if column not in source_names]
+    if missing_columns:
+        raise ValueError(
+            f"Input Dataset is missing requested update columns: {missing_columns}"
+        )
+
+    projected_columns = ["_rowaddr"]
+    if has_fragid:
+        projected_columns.append("_fragid")
+    projected_columns.extend(columns)
+    ds = ds.select_columns(projected_columns)
+
+    def _validate_and_derive_fragid(batch: DataBatch) -> pa.Table:
+        table = cast(pa.Table, batch)
+        rowaddrs = table.column("_rowaddr")
+        if rowaddrs.null_count:
+            raise ValueError(
+                "Null _rowaddr values are not allowed before fragment routing."
+            )
+
+        if rowaddrs.type != pa.uint64():
+            rowaddrs = pc.cast(rowaddrs, pa.uint64())
+            table = table.set_column(
+                table.schema.get_field_index("_rowaddr"),
+                "_rowaddr",
+                rowaddrs,
+            )
+
+        derived_fragids = pc.cast(pc.shift_right(rowaddrs, 32), pa.uint64())
+        if has_fragid:
+            fragids = table.column("_fragid")
+            if fragids.null_count:
+                raise ValueError("Null _fragid values are not allowed.")
+
+            if fragids.type != pa.uint64():
+                fragids = pc.cast(fragids, pa.uint64())
+                table = table.set_column(
+                    table.schema.get_field_index("_fragid"),
+                    "_fragid",
+                    fragids,
+                )
+
+            mismatch_mask = pc.not_equal(fragids, derived_fragids)
+            if pc.any(mismatch_mask).as_py():
+                mismatch_index = int(pc.indices_nonzero(mismatch_mask)[0].as_py())
+                rowaddr = rowaddrs[mismatch_index].as_py()
+                fragid = fragids[mismatch_index].as_py()
+                expected_fragid = derived_fragids[mismatch_index].as_py()
+                raise ValueError(
+                    f"_fragid {fragid} does not match _rowaddr {rowaddr}; "
+                    f"expected fragment id {expected_fragid}."
+                )
+
+            return table.set_column(
+                table.schema.get_field_index("_fragid"),
+                "_fragid",
+                derived_fragids,
+            )
+
+        return table.append_column("_fragid", derived_fragids)
+
+    ds = ds.map_batches(
+        _validate_and_derive_fragid,
+        batch_format="pyarrow",
+    )
+    ray_schema = ds.schema()
+    if ray_schema is None:
+        logger.warning(
+            "No rows to update; update_columns_from completed without changes."
+        )
+        return
+
+    source_provenance = _source_provenance_from_dataset_lineage(ds)
+    source_version = None if source_provenance is None else source_provenance[0]
+    source_identity = None if source_provenance is None else source_provenance[1]
+    if read_version is None:
+        if source_version is None:
+            raise ValueError(
+                "'read_version' is required because the source Lance version "
+                "is unavailable from the Ray Dataset's logical lineage."
+            )
+        read_version = source_version
+
+    lance_ds = LanceDataset(
+        uri=uri,
+        storage_options=storage_options,
+        version=read_version,
+        **namespace_kwargs,
+    )
+    if source_identity is not None:
+        target_identity = dataset_identity(lance_ds, uri=uri)
+        if source_identity != target_identity:
+            raise ValueError(
+                "Input Dataset was read from a different Lance dataset "
+                "than the update target."
+            )
+    resolved_read_version = lance_ds.version
+    if source_version is not None and resolved_read_version != source_version:
+        raise ValueError(
+            "Source Dataset was read from Lance version "
+            f"{source_version}, but update requested version "
+            f"{resolved_read_version}."
+        )
+
+    unavailable_columns = [
+        column for column in columns if column not in lance_ds.schema.names
+    ]
+    if unavailable_columns:
+        raise ValueError(
+            f"Columns do not exist in target Lance dataset: {unavailable_columns}"
+        )
+
+    source_types = dict(zip(ray_schema.names, ray_schema.types, strict=True))
+    target_types = {column: lance_ds.schema.field(column).type for column in columns}
+    type_mismatches: list[str] = []
+    for column in columns:
+        source_type = source_types[column]
+        target_type = target_types[column]
+        if isinstance(source_type, pa.DataType) and source_type != target_type:
+            type_mismatches.append(
+                f"{column}: source {source_type}, target {target_type}"
+            )
+    if type_mismatches:
+        raise ValueError("Update column type mismatch: " + "; ".join(type_mismatches))
+
+    fragments_in_lance = {f.metadata.id for f in lance_ds.get_fragments()}
+
+    _uri = uri
+    _storage_options = storage_options
+    _namespace_impl = namespace_impl
+    _namespace_properties = namespace_properties
+    _table_id = table_id
+    _read_version = resolved_read_version
+    _columns = list(columns)
+    _target_types = target_types
+    _batch_size = batch_size
+
+    def _update_one_fragment(batch: DataBatch) -> pa.Table:
+        group = cast(pa.Table, batch)
+        if group.num_rows == 0:
+            return pa.table(
+                {
+                    "frag_id": pa.array([], type=pa.int64()),
+                    "fragment_meta": pa.array([], type=pa.binary()),
+                    "fields_modified": pa.array([], type=pa.binary()),
+                }
+            )
+
+        worker_type_mismatches: list[str] = []
+        for column in _columns:
+            source_type = group.schema.field(column).type
+            target_type = _target_types[column]
+            if source_type != target_type:
+                worker_type_mismatches.append(
+                    f"{column}: source {source_type}, target {target_type}"
+                )
+        if worker_type_mismatches:
+            raise ValueError(
+                "Update column type mismatch: " + "; ".join(worker_type_mismatches)
+            )
+
+        frag_id = int(group.column("_fragid")[0].as_py())
+        rowaddrs = group.column("_rowaddr")
+        if rowaddrs.null_count:
+            raise ValueError(
+                f"Null _rowaddr values are not allowed in fragment {frag_id}."
+            )
+
+        order = pc.sort_indices(group, sort_keys=[("_rowaddr", "ascending")])
+        sorted_group = group.take(order)
+        sorted_rowaddrs = sorted_group.column("_rowaddr").combine_chunks()
+        if len(sorted_rowaddrs) > 1:
+            duplicate_mask = pc.equal(
+                sorted_rowaddrs.slice(1),
+                sorted_rowaddrs.slice(0, len(sorted_rowaddrs) - 1),
+            )
+            duplicate_rowaddrs = pc.unique(
+                pc.filter(sorted_rowaddrs.slice(1), duplicate_mask)
+            ).to_pylist()
+            if duplicate_rowaddrs:
+                raise ValueError(
+                    f"Duplicate _rowaddr values in fragment {frag_id}: "
+                    f"{duplicate_rowaddrs}"
+                )
+
+        update_table = sorted_group.select(["_rowaddr", *_columns]).combine_chunks()
+
+        local_ns_kwargs = get_namespace_kwargs(
+            _namespace_impl, _namespace_properties, _table_id
+        )
+        local_ds = LanceDataset(
+            uri=_uri,
+            storage_options=_storage_options,
+            version=_read_version,
+            **local_ns_kwargs,
+        )
+        fragment = local_ds.get_fragment(frag_id)
+        if fragment is None:
+            raise ValueError(f"Fragment {frag_id} not found in Lance dataset at {_uri}")
+
+        reader = pa.RecordBatchReader.from_batches(
+            update_table.schema,
+            update_table.to_batches(max_chunksize=_batch_size),
+        )
+        fragment_meta, fields_modified = fragment.update_columns(
+            reader,
+            left_on="_rowaddr",
+            right_on="_rowaddr",
+        )
+
+        return pa.table(
+            {
+                "frag_id": pa.array([frag_id], type=pa.int64()),
+                "fragment_meta": pa.array(
+                    [pickle.dumps(fragment_meta)], type=pa.binary()
+                ),
+                "fields_modified": pa.array(
+                    [pickle.dumps(fields_modified)], type=pa.binary()
+                ),
+            }
+        )
+
+    map_groups_kwargs: dict[str, Any] = {}
+    if ray_remote_args:
+        map_groups_kwargs.update(ray_remote_args)
+
+    result_ds = ds.groupby("_fragid").map_groups(
+        _update_one_fragment,
+        batch_format="pyarrow",
+        **map_groups_kwargs,
+    )
+
+    rows = result_ds.take_all()
+    if not rows:
+        logger.warning(
+            "No rows to update; update_columns_from completed without changes."
+        )
+        return
+
+    updated_fragments = []
+    all_fields_modified: set[int] = set()
+    seen_frag_ids: set[int] = set()
+
+    for row in rows:
+        frag_id = int(row["frag_id"])
+        if frag_id not in fragments_in_lance:
+            raise ValueError(
+                f"_fragid {frag_id} from input Dataset is not present in the "
+                f"Lance dataset at {uri}"
+            )
+        if frag_id in seen_frag_ids:
+            raise ValueError(
+                f"Duplicate _fragid {frag_id} encountered in map_groups output"
+            )
+        seen_frag_ids.add(frag_id)
+
+        fragment_meta = pickle.loads(row["fragment_meta"])
+        fields_modified = pickle.loads(row["fields_modified"])
+        updated_fragments.append(fragment_meta)
+        all_fields_modified.update(fields_modified)
+
+    op = LanceOperation.Update(
+        updated_fragments=updated_fragments,
+        fields_modified=list(all_fields_modified),
+    )
+    LanceDataset.commit(
+        uri,
+        op,
+        read_version=resolved_read_version,
+        storage_options=storage_options,
+        **namespace_kwargs,
     )
 
 

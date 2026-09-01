@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import os
 from collections.abc import Iterator
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
+from urllib.parse import quote, unquote
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -16,11 +18,65 @@ from ray.data.datasource.datasource import ReadTask
 from .utils import (
     array_split,
     get_namespace_kwargs,
-    get_or_create_namespace,
+    resolve_namespace_table,
 )
 
 if TYPE_CHECKING:
     import lance
+
+
+# Ray 2.41+ builds each logical Read source name from ``Datasource.get_name()``.
+# Keep provenance there instead of the user-controlled Dataset metrics name.
+LANCE_SOURCE_VERSION_NAME_PREFIX = "LanceDatasource[lance_ray_source_version="
+LANCE_SOURCE_ID_MARKER = ";lance_ray_source_id="
+
+
+def normalize_dataset_uri(uri: str) -> str:
+    """Return a comparable URI for dataset identity checks."""
+    if "://" in uri:
+        return uri.rstrip("/")
+    return os.path.realpath(os.path.abspath(uri)).rstrip(os.sep)
+
+
+def dataset_identity(lance_ds: Any, uri: Optional[str] = None) -> str:
+    """Return a stable identity for an opened Lance dataset.
+
+    Prefer a native dataset UUID when the installed PyLance exposes one, and
+    always include the normalized URI so copied datasets stay distinct.
+    Pass ``uri`` when the caller already resolved a canonical location, such
+    as a namespace table path, so source and target compare the same string.
+    """
+    identity_uri = uri if uri is not None else str(getattr(lance_ds, "uri", "") or "")
+    rust_ds = getattr(lance_ds, "_ds", None)
+    uuid_value: Any = None
+    if rust_ds is not None:
+        raw_uuid = getattr(rust_ds, "uuid", None)
+        uuid_value = raw_uuid() if callable(raw_uuid) else raw_uuid
+        if not identity_uri:
+            rust_uri = getattr(rust_ds, "uri", None)
+            rust_uri = rust_uri() if callable(rust_uri) else rust_uri
+            if rust_uri:
+                identity_uri = str(rust_uri)
+    normalized_uri = normalize_dataset_uri(identity_uri)
+    if uuid_value:
+        return f"uuid:{uuid_value}|uri:{normalized_uri}"
+    return f"uri:{normalized_uri}"
+
+
+def parse_source_provenance(name: str) -> tuple[int, str] | None:
+    """Parse version and dataset identity from a Ray logical source name."""
+    prefix = f"Read{LANCE_SOURCE_VERSION_NAME_PREFIX}"
+    if not name.startswith(prefix) or not name.endswith("]"):
+        return None
+    payload = name[len(prefix) : -1]
+    version_text, separator, identity_text = payload.partition(LANCE_SOURCE_ID_MARKER)
+    if not separator:
+        return None
+    try:
+        version = int(version_text)
+    except ValueError:
+        return None
+    return version, unquote(identity_text)
 
 
 class LanceDatasource(Datasource):
@@ -81,9 +137,6 @@ class LanceDatasource(Datasource):
         self._namespace_impl = namespace_impl
         self._namespace_properties = namespace_properties
 
-        # Construct namespace from impl and properties (cached per worker)
-        self._namespace = get_or_create_namespace(namespace_impl, namespace_properties)
-
         match = []
         match.extend(self.READ_FRAGMENTS_ERRORS_TO_RETRY)
         match.extend(DataContext.get_current().retried_io_errors)
@@ -98,6 +151,8 @@ class LanceDatasource(Datasource):
 
         self._lance_ds: Optional[lance.LanceDataset] = None
         self._fragments: Optional[list[lance.LanceFragment]] = None
+        self._source_version: Optional[int] = None
+        self._source_identity: Optional[str] = None
 
     @property
     def lance_dataset(self) -> lance.LanceDataset:
@@ -121,6 +176,53 @@ class LanceDatasource(Datasource):
                 **base_store_params_kwargs,
             )
         return self._lance_ds
+
+    def _pin_source_provenance(self) -> None:
+        dataset = self.lance_dataset
+        if self._source_version is None:
+            self._source_version = dataset.version
+        if self._source_identity is None:
+            resolved_uri: Optional[str]
+            try:
+                resolved_uri, _ = resolve_namespace_table(
+                    self._uri,
+                    dict(self._storage_options or {}),
+                    self._namespace_impl,
+                    self._namespace_properties,
+                    self._table_id,
+                )
+            except ValueError:
+                resolved_uri = None
+            self._source_identity = dataset_identity(dataset, uri=resolved_uri)
+
+    @property
+    def source_version(self) -> int:
+        """Return the Lance version fixed when this datasource is first used."""
+        if self._source_version is None:
+            self._pin_source_provenance()
+        version = self._source_version
+        assert version is not None
+        return version
+
+    @property
+    def source_identity(self) -> str:
+        """Return the dataset identity fixed when this datasource is first used."""
+        if self._source_identity is None:
+            self._pin_source_provenance()
+        identity = self._source_identity
+        assert identity is not None
+        return identity
+
+    def pin_source_version(self) -> None:
+        """Resolve the source snapshot before Ray starts lazy execution."""
+        self._pin_source_provenance()
+
+    def get_name(self) -> str:
+        """Return a logical source name carrying immutable snapshot provenance."""
+        return (
+            f"{LANCE_SOURCE_VERSION_NAME_PREFIX}{self.source_version}"
+            f"{LANCE_SOURCE_ID_MARKER}{quote(self.source_identity, safe='')}]"
+        )
 
     @property
     def fragments(self) -> list[lance.LanceFragment]:
@@ -162,7 +264,7 @@ class LanceDatasource(Datasource):
         # because namespace objects are not serializable. Workers will reconstruct
         # the namespace and provider using these serializable parameters.
         dataset_uri = self.lance_dataset.uri
-        dataset_version = self.lance_dataset.version
+        dataset_version = self.source_version
         dataset_storage_options = self._get_storage_options()
         serialized_manifest = self._get_serialized_manifest()
         namespace_impl = self._namespace_impl
@@ -192,9 +294,14 @@ class LanceDatasource(Datasource):
             # Ray 2.48+ no longer has the schema argument...
             if "schema" in inspect.signature(BlockMetadata.__init__).parameters:
                 # TODO(chengsu): Take column projection into consideration for schema.
+                block_schema = fragments[0].schema
+                if self._with_metadata:
+                    block_schema = block_schema.append(
+                        pa.field("_rowaddr", pa.uint64())
+                    ).append(pa.field("_fragid", pa.uint64()))
                 metadata = BlockMetadata(
                     num_rows=num_rows,
-                    schema=fragments[0].schema,  # type: ignore[call-arg]
+                    schema=block_schema,  # type: ignore[call-arg]
                     input_files=input_files,
                     size_bytes=None,
                     exec_stats=None,
