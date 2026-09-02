@@ -18,7 +18,6 @@ from ray.data.datasource.datasource import ReadTask
 from .utils import (
     array_split,
     get_namespace_kwargs,
-    resolve_namespace_table,
 )
 
 if TYPE_CHECKING:
@@ -182,18 +181,7 @@ class LanceDatasource(Datasource):
         if self._source_version is None:
             self._source_version = dataset.version
         if self._source_identity is None:
-            resolved_uri: Optional[str]
-            try:
-                resolved_uri, _ = resolve_namespace_table(
-                    self._uri,
-                    dict(self._storage_options or {}),
-                    self._namespace_impl,
-                    self._namespace_properties,
-                    self._table_id,
-                )
-            except ValueError:
-                resolved_uri = None
-            self._source_identity = dataset_identity(dataset, uri=resolved_uri)
+            self._source_identity = dataset_identity(dataset)
 
     @property
     def source_version(self) -> int:
