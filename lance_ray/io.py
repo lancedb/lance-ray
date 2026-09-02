@@ -1438,12 +1438,6 @@ def update_columns_from(
         batch_format="pyarrow",
     )
 
-    if read_version is None:
-        raise ValueError(
-            "'read_version' is required because the source Lance version "
-            "is unavailable from the Ray Dataset's logical lineage."
-        )
-
     lance_ds = LanceDataset(
         uri=uri,
         storage_options=storage_options,
@@ -1493,6 +1487,11 @@ def update_columns_from(
             "No rows to update; update_columns_from completed without changes."
         )
         return
+    if read_version is None:
+        raise ValueError(
+            "'read_version' is required because the source Lance version "
+            "is unavailable from the Ray Dataset's logical lineage."
+        )
     ds = normalized_ds
 
     _uri = uri
