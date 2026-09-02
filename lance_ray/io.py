@@ -1433,10 +1433,16 @@ def update_columns_from(
 
         return table.append_column("_fragid", derived_fragids)
 
-    normalized_ds = ds.map_batches(
+    normalized_ds = ds.select_columns(projected_columns).map_batches(
         _validate_and_derive_fragid,
         batch_format="pyarrow",
     )
+
+    if read_version is None:
+        raise ValueError(
+            "'read_version' is required because the source Lance version "
+            "is unavailable from the Ray Dataset's logical lineage."
+        )
 
     lance_ds = LanceDataset(
         uri=uri,
@@ -1487,13 +1493,7 @@ def update_columns_from(
             "No rows to update; update_columns_from completed without changes."
         )
         return
-    if read_version is None:
-        raise ValueError(
-            "'read_version' is required because the source Lance version "
-            "is unavailable from the Ray Dataset's logical lineage."
-        )
-
-    ds = normalized_ds.select_columns(projected_columns)
+    ds = normalized_ds
 
     _uri = uri
     _storage_options = storage_options

@@ -798,12 +798,14 @@ def test_update_columns_from_rejects_null_rowaddr_without_fragid(
             }
         )
     )
+    read_version = lance.dataset(str(multi_fragment_path)).version
 
     with pytest.raises(RayTaskError, match="Null _rowaddr"):
         lr.update_columns_from(
             str(multi_fragment_path),
             source,
             columns=["value"],
+            read_version=read_version,
         )
 
 
@@ -882,15 +884,12 @@ def test_update_columns_from_rejects_pandas_object_type_mismatch(
     ) -> Schema | None:
         nonlocal masked_arrow_schema
         schema = cast(Schema | None, original_schema(self, fetch_if_missing))
-        if schema is None or masked_arrow_schema or not fetch_if_missing:
+        if schema is None or "value" not in schema.names:
             return schema
-        schema_types = dict(zip(schema.names, schema.types, strict=True))
-        if schema_types.get("value") == pa.string():
-            # Model a lazy Pandas plan whose driver schema remains ambiguous
-            # even though the worker receives a concrete Arrow string column.
-            masked_arrow_schema = True
-            return source_schema
-        return schema
+        # Model a lazy Pandas plan whose driver schema remains ambiguous
+        # even though the worker receives a concrete Arrow string column.
+        masked_arrow_schema = True
+        return source_schema
 
     monkeypatch.setattr(Dataset, "schema", retain_ambiguous_pandas_schema)
 
