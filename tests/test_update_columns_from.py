@@ -476,6 +476,29 @@ def test_update_columns_from_does_not_materialize_fragment_groups(
     assert result.column("value").to_pylist() == [10, 20, 30, 40]
 
 
+def test_update_columns_from_does_not_consume_source_with_take(
+    multi_fragment_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_take(self: Dataset, limit: int = 20) -> list[dict[str, Any]]:
+        raise AssertionError(
+            "update_columns_from must not consume the source with take"
+        )
+
+    monkeypatch.setattr(Dataset, "take", fail_take)
+
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+
+    lr.update_columns_from(
+        str(multi_fragment_path),
+        source,
+        columns=["value"],
+    )
+
+    result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
+    assert result.column("value").to_pylist() == [10, 20, 30, 40]
+
+
 def test_update_columns_from_rejects_different_source_dataset(
     tmp_path: Path,
 ) -> None:
