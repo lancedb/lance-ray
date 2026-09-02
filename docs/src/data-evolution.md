@@ -87,9 +87,10 @@ the version numbers match. If an operation replaces the lineage, such as
 materializing the Dataset, provide `read_version` explicitly; the update will
 not silently use the latest Lance version.
 
-Before `groupby`, the source is projected to `_rowaddr`, `_fragid` when
-present, and the columns listed in `columns`. Unused source columns are not
-shuffled into fragment update workers.
+Before fragment partitioning, the source is projected to `_rowaddr`, `_fragid`
+when present, and the columns listed in `columns`. Unused source columns are
+not routed into fragment update workers, and each fragment is streamed as
+bounded `RecordBatch` values rather than materialized as a full table.
 
 **Parameters:**
 

@@ -362,23 +362,21 @@ def test_update_columns_from_rejects_source_version_mismatch(
         )
 
 
-def test_update_columns_from_projects_columns_before_groupby(
+def test_update_columns_from_projects_columns_before_partitioning(
     multi_fragment_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    grouped_column_names: list[list[str]] = []
-    original_groupby = Dataset.groupby
+    partitioned_column_names: list[list[str]] = []
+    original_to_arrow_refs = Dataset.to_arrow_refs
 
-    def capturing_groupby(
+    def capturing_to_arrow_refs(
         self: Dataset,
-        key: str | list[str] | None,
-        num_partitions: int | None = None,
-    ) -> object:
+    ) -> list[Any]:
         schema = self.schema()
-        grouped_column_names.append([] if schema is None else list(schema.names))
-        return original_groupby(self, key, num_partitions)
+        partitioned_column_names.append([] if schema is None else list(schema.names))
+        return cast(list[Any], original_to_arrow_refs(self))
 
-    monkeypatch.setattr(Dataset, "groupby", capturing_groupby)
+    monkeypatch.setattr(Dataset, "to_arrow_refs", capturing_to_arrow_refs)
 
     def add_unused_and_update(batch: DataBatch) -> pa.Table:
         table = cast(pa.Table, batch)
@@ -403,11 +401,32 @@ def test_update_columns_from_projects_columns_before_groupby(
         columns=["value"],
     )
 
-    assert grouped_column_names
-    assert set(grouped_column_names[-1]) == {"_fragid", "_rowaddr", "value"}
+    assert partitioned_column_names
+    assert set(partitioned_column_names[-1]) == {"_fragid", "_rowaddr", "value"}
 
     result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
     assert result.column("value").to_pylist() == [999, 999, 999, 999]
+
+
+def test_update_columns_from_does_not_materialize_fragment_groups(
+    multi_fragment_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_groupby(*args: object, **kwargs: object) -> object:
+        raise AssertionError("update_columns_from must not materialize fragment groups")
+
+    monkeypatch.setattr(Dataset, "groupby", fail_groupby)
+
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+
+    lr.update_columns_from(
+        str(multi_fragment_path),
+        source,
+        columns=["value"],
+    )
+
+    result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
+    assert result.column("value").to_pylist() == [10, 20, 30, 40]
 
 
 def test_update_columns_from_rejects_different_source_dataset(
@@ -1287,7 +1306,7 @@ def test_update_columns_from_rejects_cross_group_duplicate_rowaddr(
         )
 
 
-def test_update_columns_from_worker_failure_does_not_commit_partial_updates(
+def test_update_columns_from_rejects_unknown_fragment_before_update(
     multi_fragment_path: Path,
 ) -> None:
     dataset = lance.dataset(str(multi_fragment_path))
@@ -1309,7 +1328,45 @@ def test_update_columns_from_worker_failure_does_not_commit_partial_updates(
         )
     )
 
-    with pytest.raises(RayTaskError, match=f"Fragment {missing_frag_id} not found"):
+    with pytest.raises(ValueError, match="_fragid values from input Dataset"):
+        lr.update_columns_from(
+            str(multi_fragment_path),
+            source,
+            columns=["value"],
+            read_version=read_version,
+        )
+
+    result = lance.dataset(str(multi_fragment_path))
+    assert result.version == read_version
+    assert result.to_table().sort_by("id") == original
+
+
+def test_update_columns_from_worker_failure_does_not_commit_partial_updates(
+    multi_fragment_path: Path,
+) -> None:
+    dataset = lance.dataset(str(multi_fragment_path))
+    read_version = dataset.version
+    original = dataset.to_table().sort_by("id")
+    fragments = dataset.get_fragments()
+    first_frag_id = fragments[0].metadata.id
+    second_frag_id = fragments[1].metadata.id
+    source = ray.data.from_arrow(
+        pa.table(
+            {
+                "_rowaddr": pa.array(
+                    [
+                        first_frag_id << 32,
+                        second_frag_id << 32,
+                        second_frag_id << 32,
+                    ],
+                    type=pa.uint64(),
+                ),
+                "value": pa.array([999, 888, 777], type=pa.int64()),
+            }
+        )
+    )
+
+    with pytest.raises(RayTaskError, match="Duplicate _rowaddr"):
         lr.update_columns_from(
             str(multi_fragment_path),
             source,
