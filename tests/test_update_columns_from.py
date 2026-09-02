@@ -1,5 +1,6 @@
 """Tests for update_columns_from."""
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -1605,8 +1606,8 @@ def test_update_columns_from_forwards_storage_options(
     storage_options = {"timeout": "60s"}
     opened_storage_options: list[dict[str, str] | None] = []
     committed_storage_options: list[dict[str, str] | None] = []
-    original_init = LanceDataset.__init__
-    original_commit = LanceDataset.commit
+    original_init = cast(Callable[..., None], LanceDataset.__init__)
+    original_commit = cast(Callable[..., LanceDataset], LanceDataset.commit)
 
     def capturing_init(
         self: LanceDataset,
