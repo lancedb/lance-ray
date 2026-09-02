@@ -1326,8 +1326,8 @@ def _update_fragment_with_refs(
         db_path = os.path.join(temp_dir, "rowaddrs.sqlite")
         connection = sqlite3.connect(db_path)
         try:
-            # Keep SQLite's page cache and temporary index on disk so duplicate
-            # detection does not reintroduce a fragment-sized memory bound.
+            # Bound SQLite's page cache per worker; aggregate memory still scales
+            # with concurrent fragment update tasks.
             connection.execute("PRAGMA journal_mode=OFF")
             connection.execute("PRAGMA synchronous=OFF")
             connection.execute("PRAGMA temp_store=FILE")
@@ -1378,14 +1378,16 @@ def _update_fragment_with_refs(
                     connection.commit()
 
             connection.execute("CREATE INDEX rowaddrs_value_idx ON rowaddrs (value)")
-            duplicate = connection.execute(
-                "SELECT value FROM rowaddrs GROUP BY value HAVING COUNT(*) > 1 LIMIT 1"
-            ).fetchone()
-            if duplicate is not None:
-                duplicate_rowaddr = int.from_bytes(duplicate[0], "big")
+            duplicates = connection.execute(
+                "SELECT value FROM rowaddrs GROUP BY value HAVING COUNT(*) > 1"
+            ).fetchall()
+            if duplicates:
+                duplicate_rowaddrs = [
+                    int.from_bytes(row[0], "big") for row in duplicates
+                ]
                 raise ValueError(
                     f"Duplicate _rowaddr values in fragment {frag_id}: "
-                    f"[{duplicate_rowaddr}]"
+                    f"{duplicate_rowaddrs}"
                 )
         finally:
             connection.close()
@@ -1565,6 +1567,11 @@ def update_columns_from(
     source_provenance = _source_provenance_from_dataset_lineage(ds)
     source_version = None if source_provenance is None else source_provenance[0]
     source_identity = None if source_provenance is None else source_provenance[1]
+    if read_version is None and source_provenance is None:
+        raise ValueError(
+            "'read_version' is required because the source Lance version "
+            "is unavailable from the Ray Dataset's logical lineage."
+        )
     read_version_was_explicit = read_version is not None
     if read_version is None and source_version is not None:
         read_version = source_version
@@ -1702,11 +1709,6 @@ def update_columns_from(
             "No rows to update; update_columns_from completed without changes."
         )
         return
-    if read_version is None:
-        raise ValueError(
-            "'read_version' is required because the source Lance version "
-            "is unavailable from the Ray Dataset's logical lineage."
-        )
     if (
         source_version is not None
         and source_identity is None

@@ -455,13 +455,13 @@ def test_update_columns_from_projects_columns_before_partitioning(
     assert result.column("value").to_pylist() == [999, 999, 999, 999]
 
 
-def test_update_columns_from_does_not_materialize_fragment_groups(
+def test_update_columns_from_does_not_use_groupby(
     multi_fragment_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Avoid a fixed groupby signature because Ray Data's public API varies by version.
     def fail_groupby(*args: object, **kwargs: object) -> object:
-        raise AssertionError("update_columns_from must not materialize fragment groups")
+        raise AssertionError("update_columns_from must not use groupby")
 
     monkeypatch.setattr(Dataset, "groupby", fail_groupby)
 
@@ -498,6 +498,48 @@ def test_update_columns_from_does_not_consume_source_with_take(
 
     result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
     assert result.column("value").to_pylist() == [10, 20, 30, 40]
+
+
+def test_update_columns_from_streams_multiple_refs_for_one_fragment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "one_fragment.lance"
+    lance.write_dataset(
+        pa.table(
+            {
+                "id": pa.array([1, 2, 3, 4, 5, 6], type=pa.int64()),
+                "value": pa.array([10, 20, 30, 40, 50, 60], type=pa.int64()),
+            }
+        ),
+        str(path),
+        max_rows_per_file=6,
+    )
+    source = lr.read_lance(
+        str(path),
+        with_metadata=True,
+        override_num_blocks=3,
+    )
+
+    captured_block_refs: list[Any] = []
+    original_to_arrow_refs = Dataset.to_arrow_refs
+
+    def capturing_to_arrow_refs(self: Dataset) -> list[Any]:
+        refs = original_to_arrow_refs(self)
+        captured_block_refs.extend(refs)
+        return cast(list[Any], refs)
+
+    monkeypatch.setattr(Dataset, "to_arrow_refs", capturing_to_arrow_refs)
+
+    lr.update_columns_from(
+        str(path),
+        source,
+        columns=["value"],
+    )
+
+    assert len(captured_block_refs) >= 2
+    result = lance.dataset(str(path)).to_table().sort_by("id")
+    assert result.column("value").to_pylist() == [10, 20, 30, 40, 50, 60]
 
 
 def test_update_columns_from_rejects_different_source_dataset(
@@ -1619,6 +1661,7 @@ def test_update_columns_from_empty_source_without_fragid(
         str(multi_fragment_path),
         source,
         columns=["value"],
+        read_version=version_before,
     )
 
     assert "No rows to update" in caplog.text
