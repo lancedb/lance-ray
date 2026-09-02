@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import lance
 import lance_ray as lr
@@ -1339,6 +1339,51 @@ def test_update_columns_from_warns_for_empty_source(
     )
 
     assert "No rows to update" in caplog.text
+    assert lance.dataset(str(multi_fragment_path)).version == version_before
+
+
+@pytest.mark.parametrize(
+    ("source_columns", "requested_columns", "error_match"),
+    [
+        pytest.param(
+            {"value": pa.array([], type=pa.int64())},
+            ["value"],
+            "must contain '_rowaddr'",
+            id="missing-rowaddr",
+        ),
+        pytest.param(
+            {"_rowaddr": pa.array([], type=pa.uint64())},
+            ["missing"],
+            "missing requested update columns",
+            id="missing-source-column",
+        ),
+        pytest.param(
+            {
+                "_rowaddr": pa.array([], type=pa.uint64()),
+                "missing": pa.array([], type=pa.int64()),
+            },
+            ["missing"],
+            "do not exist in target",
+            id="missing-target-column",
+        ),
+    ],
+)
+def test_update_columns_from_validates_empty_source(
+    multi_fragment_path: Path,
+    source_columns: dict[str, Any],
+    requested_columns: list[str],
+    error_match: str,
+) -> None:
+    source = ray.data.from_arrow(pa.table(source_columns))
+    version_before = lance.dataset(str(multi_fragment_path)).version
+
+    with pytest.raises(ValueError, match=error_match):
+        lr.update_columns_from(
+            str(multi_fragment_path),
+            source,
+            columns=requested_columns,
+        )
+
     assert lance.dataset(str(multi_fragment_path)).version == version_before
 
 

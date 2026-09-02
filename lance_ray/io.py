@@ -1333,12 +1333,6 @@ def update_columns_from(
         namespace_impl, namespace_properties, table_id
     )
 
-    if not ds.take(1):
-        logger.warning(
-            "No rows to update; update_columns_from completed without changes."
-        )
-        return
-
     ray_schema = ds.schema()
     if ray_schema is None:
         logger.warning(
@@ -1383,7 +1377,12 @@ def update_columns_from(
     if has_fragid:
         projected_columns.append("_fragid")
     projected_columns.extend(columns)
-    ds = ds.select_columns(projected_columns)
+
+    source_provenance = _source_provenance_from_dataset_lineage(ds)
+    source_version = None if source_provenance is None else source_provenance[0]
+    source_identity = None if source_provenance is None else source_provenance[1]
+    if read_version is None and source_version is not None:
+        read_version = source_version
 
     def _validate_and_derive_fragid(batch: DataBatch) -> pa.Table:
         table = cast(pa.Table, batch)
@@ -1434,27 +1433,10 @@ def update_columns_from(
 
         return table.append_column("_fragid", derived_fragids)
 
-    ds = ds.map_batches(
+    normalized_ds = ds.map_batches(
         _validate_and_derive_fragid,
         batch_format="pyarrow",
     )
-    ray_schema = ds.schema()
-    if ray_schema is None:
-        logger.warning(
-            "No rows to update; update_columns_from completed without changes."
-        )
-        return
-
-    source_provenance = _source_provenance_from_dataset_lineage(ds)
-    source_version = None if source_provenance is None else source_provenance[0]
-    source_identity = None if source_provenance is None else source_provenance[1]
-    if read_version is None:
-        if source_version is None:
-            raise ValueError(
-                "'read_version' is required because the source Lance version "
-                "is unavailable from the Ray Dataset's logical lineage."
-            )
-        read_version = source_version
 
     lance_ds = LanceDataset(
         uri=uri,
@@ -1499,6 +1481,19 @@ def update_columns_from(
         raise ValueError("Update column type mismatch: " + "; ".join(type_mismatches))
 
     fragments_in_lance = {f.metadata.id for f in lance_ds.get_fragments()}
+
+    if not ds.take(1):
+        logger.warning(
+            "No rows to update; update_columns_from completed without changes."
+        )
+        return
+    if read_version is None:
+        raise ValueError(
+            "'read_version' is required because the source Lance version "
+            "is unavailable from the Ray Dataset's logical lineage."
+        )
+
+    ds = normalized_ds.select_columns(projected_columns)
 
     _uri = uri
     _storage_options = storage_options
