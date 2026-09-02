@@ -86,7 +86,10 @@ from different Lance datasets, or updating a different dataset than the one
 that was read, is rejected even when the version numbers match. If an operation
 replaces the lineage, such as materializing the Dataset, provide
 `read_version` explicitly; the update will not silently use the latest Lance
-version.
+version. If a reliable identity cannot be derived for an object-store dataset
+because no persistent UUID or non-sensitive backend discriminator is available,
+`update_columns_from` also requires an explicit `read_version` instead of
+performing unsafe automatic validation.
 
 Before fragment partitioning, the source is projected to `_rowaddr`, `_fragid`
 when present, and the columns listed in `columns`. Unused source columns are
@@ -102,7 +105,9 @@ bounded `RecordBatch` values rather than materialized as a full table.
 - `read_version`: Dataset version to update. Defaults to the unique Lance source
   version retained in the Ray Dataset's logical lineage. Required when the
   lineage is unavailable, such as after materializing the source. When lineage
-  is present, the source dataset identity must match the update target.
+  is present, the source dataset identity digest must match the update target.
+  An explicit value is also required when a reliable object-store identity
+  cannot be determined.
 - `ray_remote_args`: Optional Ray Data task options.
 - `storage_options`: Optional storage configuration dictionary.
 - `namespace_impl`, `namespace_properties`, `table_id`: Namespace resolution arguments.

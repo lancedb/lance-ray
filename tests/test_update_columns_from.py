@@ -11,6 +11,7 @@ import pyarrow.compute as pc
 import pytest
 import ray
 from lance.dataset import LanceDataset
+from lance_ray.datasource import dataset_identity_digest
 from ray.data import Dataset, Schema
 from ray.data.block import DataBatch
 from ray.exceptions import RayTaskError
@@ -363,6 +364,23 @@ def test_update_columns_from_source_lineage_does_not_expose_uri(
 
     result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
     assert result.column("value").to_pylist() == [10, 20, 30, 40]
+
+
+def test_dataset_identity_digest_requires_reliable_backend(
+    multi_fragment_path: Path,
+) -> None:
+    class FakeLanceDataset:
+        uri = "s3://bucket/table"
+        _ds = object()
+
+    assert dataset_identity_digest(FakeLanceDataset()) is None
+    assert (
+        dataset_identity_digest(
+            FakeLanceDataset(),
+            storage_options={"endpoint": "http://minio:9000"},
+        )
+        is not None
+    )
 
 
 def test_update_columns_from_rejects_source_version_mismatch(

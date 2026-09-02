@@ -6,7 +6,7 @@ import os
 from collections.abc import Iterator
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -38,7 +38,56 @@ def normalize_dataset_uri(uri: str) -> str:
     return os.path.realpath(os.path.abspath(uri)).rstrip(os.sep)
 
 
-def dataset_identity(lance_ds: Any, uri: Optional[str] = None) -> str:
+def _non_sensitive_backend_identity(
+    storage_options: Optional[dict[str, Any]],
+) -> Optional[str]:
+    """Return a stable, non-secret backend discriminator when one is available."""
+    if not storage_options:
+        return None
+
+    for key in ("endpoint", "endpoint_url"):
+        value = storage_options.get(key)
+        if not value:
+            continue
+        value = str(value)
+        if "://" in value:
+            parsed = urlsplit(value)
+            value = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        return f"{key}:{value}"
+
+    region = storage_options.get("region")
+    if region:
+        return f"region:{region}"
+    return None
+
+
+def _dataset_uuid(lance_ds: Any) -> Any:
+    rust_ds = getattr(lance_ds, "_ds", None)
+    if rust_ds is None:
+        return None
+    raw_uuid = getattr(rust_ds, "uuid", None)
+    return raw_uuid() if callable(raw_uuid) else raw_uuid
+
+
+def _has_reliable_identity(
+    lance_ds: Any,
+    storage_options: Optional[dict[str, Any]],
+) -> bool:
+    if _dataset_uuid(lance_ds) is not None:
+        return True
+    if _non_sensitive_backend_identity(storage_options) is not None:
+        return True
+
+    identity_uri = str(getattr(lance_ds, "uri", "") or "")
+    scheme = urlsplit(identity_uri).scheme.lower()
+    return scheme in {"", "file"}
+
+
+def dataset_identity(
+    lance_ds: Any,
+    uri: Optional[str] = None,
+    storage_options: Optional[dict[str, Any]] = None,
+) -> str:
     """Return a stable identity for an opened Lance dataset.
 
     Prefer a native dataset UUID when the installed PyLance exposes one, and
@@ -47,30 +96,41 @@ def dataset_identity(lance_ds: Any, uri: Optional[str] = None) -> str:
     as a namespace table path, so source and target compare the same string.
     """
     identity_uri = uri if uri is not None else str(getattr(lance_ds, "uri", "") or "")
-    rust_ds = getattr(lance_ds, "_ds", None)
-    uuid_value: Any = None
-    if rust_ds is not None:
-        raw_uuid = getattr(rust_ds, "uuid", None)
-        uuid_value = raw_uuid() if callable(raw_uuid) else raw_uuid
+    uuid_value = _dataset_uuid(lance_ds)
+    if uuid_value is None:
+        rust_ds = getattr(lance_ds, "_ds", None)
         if not identity_uri:
             rust_uri = getattr(rust_ds, "uri", None)
             rust_uri = rust_uri() if callable(rust_uri) else rust_uri
             if rust_uri:
                 identity_uri = str(rust_uri)
     normalized_uri = normalize_dataset_uri(identity_uri)
+    identity_parts = []
     if uuid_value:
-        return f"uuid:{uuid_value}|uri:{normalized_uri}"
-    return f"uri:{normalized_uri}"
+        identity_parts.append(f"uuid:{uuid_value}")
+    identity_parts.append(f"uri:{normalized_uri}")
+    backend = _non_sensitive_backend_identity(storage_options)
+    if backend is not None:
+        identity_parts.append(f"backend:{backend}")
+    return "|".join(identity_parts)
 
 
-def dataset_identity_digest(lance_ds: Any, uri: Optional[str] = None) -> str:
+def dataset_identity_digest(
+    lance_ds: Any,
+    uri: Optional[str] = None,
+    storage_options: Optional[dict[str, Any]] = None,
+) -> Optional[str]:
     """Return an irreversible digest of the stable dataset identity."""
+    if not _has_reliable_identity(lance_ds, storage_options):
+        return None
     return hashlib.sha256(
-        dataset_identity(lance_ds, uri=uri).encode("utf-8")
+        dataset_identity(lance_ds, uri=uri, storage_options=storage_options).encode(
+            "utf-8"
+        )
     ).hexdigest()
 
 
-def parse_source_provenance(name: str) -> tuple[int, str] | None:
+def parse_source_provenance(name: str) -> tuple[int, Optional[str]] | None:
     """Parse version and dataset identity from a Ray logical source name."""
     prefix = f"Read{LANCE_SOURCE_VERSION_NAME_PREFIX}"
     if not name.startswith(prefix) or not name.endswith("]"):
@@ -83,7 +143,10 @@ def parse_source_provenance(name: str) -> tuple[int, str] | None:
         version = int(version_text)
     except ValueError:
         return None
-    return version, unquote(identity_text)
+    identity = unquote(identity_text)
+    if identity == "unavailable":
+        return version, None
+    return version, identity
 
 
 class LanceDatasource(Datasource):
@@ -189,7 +252,10 @@ class LanceDatasource(Datasource):
         if self._source_version is None:
             self._source_version = dataset.version
         if self._source_identity is None:
-            self._source_identity = dataset_identity_digest(dataset)
+            self._source_identity = dataset_identity_digest(
+                dataset,
+                storage_options=self._storage_options,
+            )
 
     @property
     def source_version(self) -> int:
@@ -201,13 +267,11 @@ class LanceDatasource(Datasource):
         return version
 
     @property
-    def source_identity(self) -> str:
+    def source_identity(self) -> Optional[str]:
         """Return the dataset identity fixed when this datasource is first used."""
         if self._source_identity is None:
             self._pin_source_provenance()
-        identity = self._source_identity
-        assert identity is not None
-        return identity
+        return self._source_identity
 
     def pin_source_version(self) -> None:
         """Resolve the source snapshot before Ray starts lazy execution."""
@@ -215,9 +279,11 @@ class LanceDatasource(Datasource):
 
     def get_name(self) -> str:
         """Return a logical source name carrying immutable snapshot provenance."""
+        identity = self.source_identity
+        identity_text = "unavailable" if identity is None else quote(identity, safe="")
         return (
             f"{LANCE_SOURCE_VERSION_NAME_PREFIX}{self.source_version}"
-            f"{LANCE_SOURCE_ID_MARKER}{quote(self.source_identity, safe='')}]"
+            f"{LANCE_SOURCE_ID_MARKER}{identity_text}]"
         )
 
     @property

@@ -195,7 +195,7 @@ def read_lance(
 
 def _source_provenance_from_dataset_lineage(
     ds: Dataset,
-) -> tuple[int, str] | None:
+) -> tuple[int, Optional[str]] | None:
     """Return unique Lance version and identity when every logical source is Lance."""
     logical_plan = cast(_DatasetWithLogicalPlan, ds)._logical_plan
     sources = logical_plan.sources()
@@ -203,7 +203,7 @@ def _source_provenance_from_dataset_lineage(
         return None
 
     source_versions: set[int] = set()
-    source_identities: set[str] = set()
+    source_identities: set[Optional[str]] = set()
     for source in sources:
         provenance = parse_source_provenance(source.name)
         if provenance is None:
@@ -1562,6 +1562,7 @@ def update_columns_from(
     source_provenance = _source_provenance_from_dataset_lineage(ds)
     source_version = None if source_provenance is None else source_provenance[0]
     source_identity = None if source_provenance is None else source_provenance[1]
+    read_version_was_explicit = read_version is not None
     if read_version is None and source_version is not None:
         read_version = source_version
 
@@ -1626,7 +1627,15 @@ def update_columns_from(
         **namespace_kwargs,
     )
     if source_identity is not None:
-        target_identity = dataset_identity_digest(lance_ds, uri=uri)
+        target_identity = dataset_identity_digest(
+            lance_ds,
+            uri=uri,
+            storage_options=storage_options,
+        )
+        if target_identity is None:
+            raise ValueError(
+                "Target dataset identity could not be reliably determined."
+            )
         if source_identity != target_identity:
             raise ValueError(
                 "Input Dataset was read from a different Lance dataset "
@@ -1694,6 +1703,16 @@ def update_columns_from(
         raise ValueError(
             "'read_version' is required because the source Lance version "
             "is unavailable from the Ray Dataset's logical lineage."
+        )
+    if (
+        source_version is not None
+        and source_identity is None
+        and not read_version_was_explicit
+    ):
+        raise ValueError(
+            "A reliable dataset identity is unavailable from the Ray Dataset's "
+            "logical lineage. Pass 'read_version' explicitly to update the "
+            "target dataset."
         )
 
     update_tasks = [
