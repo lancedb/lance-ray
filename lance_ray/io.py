@@ -1465,8 +1465,11 @@ def update_columns_from(
         read_version: Dataset version to update. Defaults to the unique Lance
             source version retained in the Ray Dataset's logical lineage. It is
             required when that lineage is unavailable, such as after
-            materializing the source. When lineage is present, the source
-            dataset identity must match the update target.
+            materializing the source. An explicit version identifies the target
+            version but does not prove the source rows came from that dataset;
+            the caller must ensure source provenance when lineage is lost. When
+            lineage is present, the source dataset identity must match the
+            update target.
         ray_remote_args: Options passed to the Ray partition and fragment-update tasks.
         storage_options: Storage options used to open the dataset.
         namespace_impl: Namespace implementation type, such as ``"dir"`` or

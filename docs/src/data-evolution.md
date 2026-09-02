@@ -83,13 +83,16 @@ retrying requires rerunning the update pipeline from the latest dataset version.
 stable dataset identity in Ray's logical source lineage, so renaming or
 combining lazy Dataset branches does not change the update base. Combining rows
 from different Lance datasets, or updating a different dataset than the one
-that was read, is rejected even when the version numbers match. If an operation
-replaces the lineage, such as materializing the Dataset, provide
-`read_version` explicitly; the update will not silently use the latest Lance
-version. If a reliable identity cannot be derived for an object-store dataset
-because no persistent UUID or non-sensitive backend discriminator is available,
-`update_columns_from` also requires an explicit `read_version` instead of
-performing unsafe automatic validation.
+that was read, is rejected even when the version numbers match, but only while
+that source lineage remains present. If an operation replaces the lineage, such
+as materializing the Dataset, provide `read_version` explicitly; the update
+will not silently use the latest Lance version. An explicit `read_version`
+proves which target version is used, not which dataset produced the source
+rows, so after lineage is lost the caller must ensure that the source rows
+still correspond to that target dataset. If a reliable identity cannot be
+derived for an object-store dataset because no persistent UUID or non-sensitive
+backend discriminator is available, `update_columns_from` also requires an
+explicit `read_version` instead of performing unsafe automatic validation.
 
 Before fragment partitioning, the source is projected to `_rowaddr`, `_fragid`
 when present, and the columns listed in `columns`. Unused source columns are
