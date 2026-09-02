@@ -459,6 +459,7 @@ def test_update_columns_from_does_not_materialize_fragment_groups(
     multi_fragment_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Avoid a fixed groupby signature because Ray Data's public API varies by version.
     def fail_groupby(*args: object, **kwargs: object) -> object:
         raise AssertionError("update_columns_from must not materialize fragment groups")
 
