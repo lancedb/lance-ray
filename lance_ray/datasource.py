@@ -34,6 +34,12 @@ LANCE_SOURCE_ID_MARKER = ";lance_ray_source_id="
 def normalize_dataset_uri(uri: str) -> str:
     """Return a comparable URI for dataset identity checks."""
     if "://" in uri:
+        parsed = urlsplit(uri)
+        if parsed.scheme == "file":
+            path = unquote(parsed.path)
+            if parsed.netloc and parsed.netloc != "localhost":
+                path = f"//{parsed.netloc}{path}"
+            return os.path.realpath(os.path.abspath(path)).rstrip(os.sep)
         return uri.rstrip("/")
     return os.path.realpath(os.path.abspath(uri)).rstrip(os.sep)
 

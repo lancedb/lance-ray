@@ -11,7 +11,7 @@ import pyarrow.compute as pc
 import pytest
 import ray
 from lance.dataset import LanceDataset
-from lance_ray.datasource import dataset_identity_digest
+from lance_ray.datasource import dataset_identity_digest, normalize_dataset_uri
 from ray.data import Dataset, Schema
 from ray.data.block import DataBatch
 from ray.exceptions import RayTaskError
@@ -381,6 +381,15 @@ def test_dataset_identity_digest_requires_reliable_backend(
         )
         is not None
     )
+
+
+def test_normalize_dataset_uri_treats_file_scheme_as_local_path(
+    multi_fragment_path: Path,
+) -> None:
+    local_uri = str(multi_fragment_path)
+    file_uri = f"file://{multi_fragment_path}"
+
+    assert normalize_dataset_uri(file_uri) == normalize_dataset_uri(local_uri)
 
 
 def test_update_columns_from_rejects_source_version_mismatch(
