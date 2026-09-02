@@ -345,6 +345,26 @@ def test_update_columns_from_requires_version_without_source_lineage(
     assert result.column("value").to_pylist() == [999, 999, 999, 999]
 
 
+def test_update_columns_from_source_lineage_does_not_expose_uri(
+    multi_fragment_path: Path,
+) -> None:
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+    logical_plan = cast(Any, source)._logical_plan
+    source_name = logical_plan.sources()[0].name
+
+    assert str(multi_fragment_path) not in source_name
+    assert "lance_ray_source_id=" in source_name
+
+    lr.update_columns_from(
+        str(multi_fragment_path),
+        source,
+        columns=["value"],
+    )
+
+    result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
+    assert result.column("value").to_pylist() == [10, 20, 30, 40]
+
+
 def test_update_columns_from_rejects_source_version_mismatch(
     multi_fragment_path: Path,
 ) -> None:

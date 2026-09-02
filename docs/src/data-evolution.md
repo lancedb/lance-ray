@@ -79,13 +79,14 @@ corresponding target column.
 The final update operation is committed once against the dataset version that
 was originally read. Commit conflicts are returned to the caller; safely
 retrying requires rerunning the update pipeline from the latest dataset version.
-`read_lance()` retains that version and a stable dataset identity in Ray's
-logical source lineage, so renaming or combining lazy Dataset branches does
-not change the update base. Combining rows from different Lance datasets, or
-updating a different dataset than the one that was read, is rejected even when
-the version numbers match. If an operation replaces the lineage, such as
-materializing the Dataset, provide `read_version` explicitly; the update will
-not silently use the latest Lance version.
+`read_lance()` retains that version and an irreversible SHA-256 digest of the
+stable dataset identity in Ray's logical source lineage, so renaming or
+combining lazy Dataset branches does not change the update base. Combining rows
+from different Lance datasets, or updating a different dataset than the one
+that was read, is rejected even when the version numbers match. If an operation
+replaces the lineage, such as materializing the Dataset, provide
+`read_version` explicitly; the update will not silently use the latest Lance
+version.
 
 Before fragment partitioning, the source is projected to `_rowaddr`, `_fragid`
 when present, and the columns listed in `columns`. Unused source columns are

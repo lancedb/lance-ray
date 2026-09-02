@@ -32,7 +32,7 @@ from ray.util.multiprocessing import Pool
 from .datasink import LanceDatasink
 from .datasource import (
     LanceDatasource,
-    dataset_identity,
+    dataset_identity_digest,
     parse_source_provenance,
 )
 from .fragment import prepare_fragment_write_options
@@ -1626,7 +1626,7 @@ def update_columns_from(
         **namespace_kwargs,
     )
     if source_identity is not None:
-        target_identity = dataset_identity(lance_ds, uri=uri)
+        target_identity = dataset_identity_digest(lance_ds, uri=uri)
         if source_identity != target_identity:
             raise ValueError(
                 "Input Dataset was read from a different Lance dataset "

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import os
 from collections.abc import Iterator
@@ -60,6 +61,13 @@ def dataset_identity(lance_ds: Any, uri: Optional[str] = None) -> str:
     if uuid_value:
         return f"uuid:{uuid_value}|uri:{normalized_uri}"
     return f"uri:{normalized_uri}"
+
+
+def dataset_identity_digest(lance_ds: Any, uri: Optional[str] = None) -> str:
+    """Return an irreversible digest of the stable dataset identity."""
+    return hashlib.sha256(
+        dataset_identity(lance_ds, uri=uri).encode("utf-8")
+    ).hexdigest()
 
 
 def parse_source_provenance(name: str) -> tuple[int, str] | None:
@@ -181,7 +189,7 @@ class LanceDatasource(Datasource):
         if self._source_version is None:
             self._source_version = dataset.version
         if self._source_identity is None:
-            self._source_identity = dataset_identity(dataset)
+            self._source_identity = dataset_identity_digest(dataset)
 
     @property
     def source_version(self) -> int:
