@@ -864,6 +864,7 @@ def test_update_columns_from_rejects_null_rowaddr_without_fragid(
             }
         )
     )
+    # Without lineage, an explicit version is required before worker validation.
     read_version = lance.dataset(str(multi_fragment_path)).version
 
     with pytest.raises(RayTaskError, match="Null _rowaddr"):
