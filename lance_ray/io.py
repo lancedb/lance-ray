@@ -1567,11 +1567,6 @@ def update_columns_from(
     source_provenance = _source_provenance_from_dataset_lineage(ds)
     source_version = None if source_provenance is None else source_provenance[0]
     source_identity = None if source_provenance is None else source_provenance[1]
-    if read_version is None and source_provenance is None:
-        raise ValueError(
-            "'read_version' is required because the source Lance version "
-            "is unavailable from the Ray Dataset's logical lineage."
-        )
     read_version_was_explicit = read_version is not None
     if read_version is None and source_version is not None:
         read_version = source_version
@@ -1679,6 +1674,12 @@ def update_columns_from(
             )
     if type_mismatches:
         raise ValueError("Update column type mismatch: " + "; ".join(type_mismatches))
+
+    if read_version is None and source_provenance is None:
+        raise ValueError(
+            "'read_version' is required because the source Lance version "
+            "is unavailable from the Ray Dataset's logical lineage."
+        )
 
     fragments_in_lance = {f.metadata.id for f in lance_ds.get_fragments()}
 
