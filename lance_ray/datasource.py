@@ -418,11 +418,11 @@ class LanceDatasource(Datasource):
             num_rows = scanner.count_rows()
 
             fragment_ids = [f.metadata.id for f in fragments]
-            input_files = [
+            input_files: tuple[str, ...] = tuple(
                 data_file.path
                 for fragment in fragments
                 for data_file in fragment.data_files()
-            ]
+            )
 
             # Ray 2.48+ no longer has the schema argument...
             if metadata_accepts_schema:
