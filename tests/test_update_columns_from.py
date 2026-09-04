@@ -6,12 +6,19 @@ from typing import Any, cast
 
 import lance
 import lance_ray as lr
+import lance_ray.datasource as datasource_module
+import lance_ray.io as lance_io
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 import ray
 from lance.dataset import LanceDataset
-from lance_ray.datasource import dataset_identity_digest, normalize_dataset_uri
+from lance_ray.datasource import (
+    LanceDatasource,
+    dataset_identity,
+    dataset_identity_digest,
+    normalize_dataset_uri,
+)
 from ray.data import Dataset, Schema
 from ray.data.block import DataBatch
 from ray.exceptions import RayTaskError
@@ -366,11 +373,9 @@ def test_update_columns_from_source_lineage_does_not_expose_uri(
     assert result.column("value").to_pylist() == [10, 20, 30, 40]
 
 
-def test_dataset_identity_digest_requires_reliable_backend(
-    multi_fragment_path: Path,
-) -> None:
+def test_dataset_identity_digest_requires_reliable_backend() -> None:
     class FakeLanceDataset:
-        uri = "s3://bucket/table"
+        uri = "az://container/table"
         _ds = object()
 
     assert dataset_identity_digest(FakeLanceDataset()) is None
@@ -383,6 +388,77 @@ def test_dataset_identity_digest_requires_reliable_backend(
     )
 
 
+@pytest.mark.parametrize("scheme", ["s3", "gs"])
+def test_dataset_identity_digest_distinguishes_global_cloud_buckets(
+    scheme: str,
+) -> None:
+    class FakeLanceDataset:
+        _ds = object()
+
+        def __init__(self, dataset_uri: str) -> None:
+            self.uri = dataset_uri
+
+    first = dataset_identity_digest(FakeLanceDataset(f"{scheme}://first/table"))
+    second = dataset_identity_digest(FakeLanceDataset(f"{scheme}://second/table"))
+
+    assert first is not None
+    assert second is not None
+    assert first != second
+
+
+def test_dataset_identity_excludes_endpoint_credentials() -> None:
+    class FakeLanceDataset:
+        uri = "s3://bucket/table"
+        _ds = object()
+
+    first = dataset_identity(
+        FakeLanceDataset(),
+        storage_options={
+            "endpoint_url": "https://first:secret@minio.example:9000/api?token=one"
+        },
+    )
+    second = dataset_identity(
+        FakeLanceDataset(),
+        storage_options={
+            "endpoint_url": "https://second:rotated@minio.example:9000/api?token=two"
+        },
+    )
+
+    assert first == second
+    assert "first" not in first
+    assert "secret" not in first
+    assert "token" not in first
+
+
+def test_datasource_caches_unavailable_source_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLanceDataset:
+        version = 7
+
+    calls = 0
+
+    def unavailable_identity(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        return None
+
+    monkeypatch.setattr(
+        datasource_module,
+        "dataset_identity_digest",
+        unavailable_identity,
+    )
+    datasource = object.__new__(LanceDatasource)
+    datasource._source_provenance = None
+    datasource._lance_ds = cast(Any, FakeLanceDataset())
+    datasource._storage_options = None
+
+    assert datasource.source_identity is None
+    assert datasource.source_identity is None
+    assert datasource.source_version == 7
+    assert calls == 1
+
+
 def test_normalize_dataset_uri_treats_file_scheme_as_local_path(
     multi_fragment_path: Path,
 ) -> None:
@@ -390,6 +466,38 @@ def test_normalize_dataset_uri_treats_file_scheme_as_local_path(
     file_uri = f"file://{multi_fragment_path}"
 
     assert normalize_dataset_uri(file_uri) == normalize_dataset_uri(local_uri)
+
+
+def test_normalize_dataset_uri_handles_windows_drive_paths() -> None:
+    normalized = normalize_dataset_uri("C:\\Data\\Table.lance\\")
+
+    assert normalized == normalize_dataset_uri("c:/data/table.lance")
+    assert normalized == normalize_dataset_uri("file:///C:/Data/Table.lance/")
+
+
+def test_update_columns_from_fails_before_partitioning_without_reliable_identity(
+    multi_fragment_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = lance.dataset(str(multi_fragment_path)).version
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+    monkeypatch.setattr(
+        lance_io,
+        "_source_provenance_from_dataset_lineage",
+        lambda _: (version, None),
+    )
+
+    def fail_to_arrow_refs(self: Dataset) -> list[Any]:
+        raise AssertionError("partitioning must not start before provenance validation")
+
+    monkeypatch.setattr(Dataset, "to_arrow_refs", fail_to_arrow_refs)
+
+    with pytest.raises(ValueError, match="reliable dataset identity"):
+        lr.update_columns_from(
+            str(multi_fragment_path),
+            source,
+            columns=["value"],
+        )
 
 
 def test_update_columns_from_rejects_source_version_mismatch(
@@ -465,7 +573,15 @@ def test_update_columns_from_does_not_use_groupby(
 
     monkeypatch.setattr(Dataset, "groupby", fail_groupby)
 
-    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+    def update_values(batch: DataBatch) -> pd.DataFrame:
+        frame = cast(pd.DataFrame, batch).copy()
+        frame["value"] += 100
+        return frame
+
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True).map_batches(
+        update_values,
+        batch_format="pandas",
+    )
 
     lr.update_columns_from(
         str(multi_fragment_path),
@@ -474,7 +590,7 @@ def test_update_columns_from_does_not_use_groupby(
     )
 
     result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
-    assert result.column("value").to_pylist() == [10, 20, 30, 40]
+    assert result.column("value").to_pylist() == [110, 120, 130, 140]
 
 
 def test_update_columns_from_does_not_consume_source_with_take(
@@ -488,7 +604,15 @@ def test_update_columns_from_does_not_consume_source_with_take(
 
     monkeypatch.setattr(Dataset, "take", fail_take)
 
-    source = lr.read_lance(str(multi_fragment_path), with_metadata=True)
+    def update_values(batch: DataBatch) -> pd.DataFrame:
+        frame = cast(pd.DataFrame, batch).copy()
+        frame["value"] += 100
+        return frame
+
+    source = lr.read_lance(str(multi_fragment_path), with_metadata=True).map_batches(
+        update_values,
+        batch_format="pandas",
+    )
 
     lr.update_columns_from(
         str(multi_fragment_path),
@@ -497,7 +621,7 @@ def test_update_columns_from_does_not_consume_source_with_take(
     )
 
     result = lance.dataset(str(multi_fragment_path)).to_table().sort_by("id")
-    assert result.column("value").to_pylist() == [10, 20, 30, 40]
+    assert result.column("value").to_pylist() == [110, 120, 130, 140]
 
 
 def test_update_columns_from_streams_multiple_refs_for_one_fragment(
@@ -515,11 +639,17 @@ def test_update_columns_from_streams_multiple_refs_for_one_fragment(
         str(path),
         max_rows_per_file=6,
     )
+
+    def update_values(batch: DataBatch) -> pd.DataFrame:
+        frame = cast(pd.DataFrame, batch).copy()
+        frame["value"] += 100
+        return frame
+
     source = lr.read_lance(
         str(path),
         with_metadata=True,
         override_num_blocks=3,
-    )
+    ).map_batches(update_values, batch_format="pandas")
 
     captured_block_refs: list[Any] = []
     original_to_arrow_refs = Dataset.to_arrow_refs
@@ -539,7 +669,7 @@ def test_update_columns_from_streams_multiple_refs_for_one_fragment(
 
     assert len(captured_block_refs) >= 2
     result = lance.dataset(str(path)).to_table().sort_by("id")
-    assert result.column("value").to_pylist() == [10, 20, 30, 40, 50, 60]
+    assert result.column("value").to_pylist() == [110, 120, 130, 140, 150, 160]
 
 
 def test_update_columns_from_rejects_different_source_dataset(
@@ -1391,7 +1521,7 @@ def test_update_columns_from_rejects_null_fragid(
         )
 
 
-def test_update_columns_from_rejects_cross_group_duplicate_rowaddr(
+def test_update_columns_from_rejects_inconsistent_fragid_on_duplicated_rows(
     multi_fragment_path: Path,
 ) -> None:
     def duplicate_with_other_fragid(batch: DataBatch) -> pa.Table:
@@ -1465,20 +1595,28 @@ def test_update_columns_from_worker_failure_does_not_commit_partial_updates(
     first_frag_id = fragments[0].metadata.id
     second_frag_id = fragments[1].metadata.id
     source = ray.data.from_arrow(
-        pa.table(
-            {
-                "_rowaddr": pa.array(
-                    [
-                        first_frag_id << 32,
-                        second_frag_id << 32,
-                        second_frag_id << 32,
-                    ],
-                    type=pa.uint64(),
-                ),
-                "value": pa.array([999, 888, 777], type=pa.int64()),
-            }
-        )
+        [
+            pa.table(
+                {
+                    "_rowaddr": pa.array(
+                        [first_frag_id << 32],
+                        type=pa.uint64(),
+                    ),
+                    "value": pa.array([999], type=pa.int64()),
+                }
+            ),
+            pa.table(
+                {
+                    "_rowaddr": pa.array(
+                        [second_frag_id << 32, second_frag_id << 32],
+                        type=pa.uint64(),
+                    ),
+                    "value": pa.array([888, 777], type=pa.int64()),
+                }
+            ),
+        ]
     )
+    assert source.num_blocks() == 2
 
     with pytest.raises(RayTaskError, match="Duplicate _rowaddr"):
         lr.update_columns_from(
@@ -1491,6 +1629,20 @@ def test_update_columns_from_worker_failure_does_not_commit_partial_updates(
     result = lance.dataset(str(multi_fragment_path))
     assert result.version == read_version
     assert result.to_table().sort_by("id") == original
+
+
+def test_read_lance_projected_schema_includes_requested_metadata(
+    multi_fragment_path: Path,
+) -> None:
+    source = lr.read_lance(
+        str(multi_fragment_path),
+        columns=["value"],
+        with_metadata=True,
+    )
+
+    schema = source.schema()
+    assert schema is not None
+    assert schema.names == ["value", "_rowaddr", "_fragid"]
 
 
 def test_update_columns_from_warns_for_empty_source(

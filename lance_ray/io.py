@@ -1274,15 +1274,18 @@ def _partition_block_by_fragid(
         block,
         sort_keys=[("_fragid", "ascending"), ("_rowaddr", "ascending")],
     )
-    sorted_block = block.take(order)
-    fragids = sorted_block.column("_fragid").to_numpy(zero_copy_only=False)
+    # Materialize only the routing column globally. Taking the full, potentially
+    # wide table here would temporarily duplicate an entire Ray block.
+    fragids = block.column("_fragid").take(order).to_numpy(zero_copy_only=False)
     unique_fragids = np.unique(fragids)
     starts = np.searchsorted(fragids, unique_fragids, side="left")
     ends = np.searchsorted(fragids, unique_fragids, side="right")
 
     partitions: dict[int, ray.ObjectRef[pa.Table]] = {}
     for frag_id, start, end in zip(unique_fragids, starts, ends, strict=True):
-        partition = sorted_block.slice(int(start), int(end) - int(start))
+        start_index = int(start)
+        partition_length = int(end) - start_index
+        partition = block.take(order.slice(start_index, partition_length))
         partitions[int(frag_id)] = cast(
             ray.ObjectRef[pa.Table],
             ray.put(partition),
@@ -1293,7 +1296,7 @@ def _partition_block_by_fragid(
 @ray.remote
 def _update_fragment_with_refs(
     args: _UpdateFragmentArgs,
-) -> tuple[int, bytes, bytes]:
+) -> tuple[bytes, bytes]:
     """Stream one fragment's update rows and return commit metadata."""
     frag_id = args.frag_id
     refs = args.refs
@@ -1375,9 +1378,9 @@ def _update_fragment_with_refs(
                         "INSERT INTO rowaddrs (value) VALUES (?)",
                         [(value,) for value in values],
                     )
-                    connection.commit()
 
             connection.execute("CREATE INDEX rowaddrs_value_idx ON rowaddrs (value)")
+            connection.commit()
             duplicates = connection.execute(
                 "SELECT value FROM rowaddrs GROUP BY value HAVING COUNT(*) > 1"
             ).fetchall()
@@ -1398,6 +1401,9 @@ def _update_fragment_with_refs(
     )
 
     def _update_batches() -> Iterator[pa.RecordBatch]:
+        # This second pass is intentional: validation must finish before Lance
+        # starts writing update files. Retaining every resolved table would trade
+        # the object-store lookup for unbounded per-fragment worker heap usage.
         for ref in refs:
             table = ray.get(ref)
             for batch in table.to_batches(max_chunksize=batch_size):
@@ -1409,11 +1415,7 @@ def _update_fragment_with_refs(
         left_on="_rowaddr",
         right_on="_rowaddr",
     )
-    return (
-        frag_id,
-        pickle.dumps(fragment_meta),
-        pickle.dumps(fields_modified),
-    )
+    return pickle.dumps(fragment_meta), pickle.dumps(fields_modified)
 
 
 def update_columns_from(
@@ -1570,6 +1572,16 @@ def update_columns_from(
     read_version_was_explicit = read_version is not None
     if read_version is None and source_version is not None:
         read_version = source_version
+    if (
+        source_version is not None
+        and source_identity is None
+        and not read_version_was_explicit
+    ):
+        raise ValueError(
+            "A reliable dataset identity is unavailable from the Ray Dataset's "
+            "logical lineage. Pass 'read_version' explicitly to update the "
+            "target dataset."
+        )
 
     def _validate_and_derive_fragid(batch: DataBatch) -> pa.Table:
         table = cast(pa.Table, batch)
@@ -1687,6 +1699,8 @@ def update_columns_from(
     partition_fn = _partition_block_by_fragid.options(**remote_options)
     update_fn = _update_fragment_with_refs.options(**remote_options)
 
+    # This documented DeveloperAPI is available in the minimum supported Ray
+    # version (2.41) and is the zero-copy API for distributed Arrow block refs.
     block_refs = normalized_ds.to_arrow_refs()
     partition_tasks = [partition_fn.remote(block_ref) for block_ref in block_refs]
     partition_results = ray.get(partition_tasks)
@@ -1710,17 +1724,6 @@ def update_columns_from(
             "No rows to update; update_columns_from completed without changes."
         )
         return
-    if (
-        source_version is not None
-        and source_identity is None
-        and not read_version_was_explicit
-    ):
-        raise ValueError(
-            "A reliable dataset identity is unavailable from the Ray Dataset's "
-            "logical lineage. Pass 'read_version' explicitly to update the "
-            "target dataset."
-        )
-
     update_tasks = [
         update_fn.remote(
             _UpdateFragmentArgs(
@@ -1743,20 +1746,8 @@ def update_columns_from(
 
     updated_fragments = []
     all_fields_modified: set[int] = set()
-    seen_frag_ids: set[int] = set()
 
-    for frag_id, fragment_meta_bytes, fields_modified_bytes in results:
-        if frag_id not in fragments_in_lance:
-            raise ValueError(
-                f"_fragid {frag_id} from input Dataset is not present in the "
-                f"Lance dataset at {uri}"
-            )
-        if frag_id in seen_frag_ids:
-            raise ValueError(
-                f"Duplicate _fragid {frag_id} encountered in update output"
-            )
-        seen_frag_ids.add(frag_id)
-
+    for fragment_meta_bytes, fields_modified_bytes in results:
         fragment_meta = pickle.loads(fragment_meta_bytes)
         fields_modified = pickle.loads(fields_modified_bytes)
         updated_fragments.append(fragment_meta)

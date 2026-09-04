@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import ntpath
 import os
+import re
 from collections.abc import Iterator
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -29,14 +31,33 @@ if TYPE_CHECKING:
 # Keep provenance there instead of the user-controlled Dataset metrics name.
 LANCE_SOURCE_VERSION_NAME_PREFIX = "LanceDatasource[lance_ray_source_version="
 LANCE_SOURCE_ID_MARKER = ";lance_ray_source_id="
+_WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_WINDOWS_FILE_URI_PATH = re.compile(r"^/[A-Za-z]:[\\/]")
+
+
+def _uri_scheme(uri: str) -> str:
+    if _WINDOWS_DRIVE_PATH.match(uri):
+        return ""
+    return urlsplit(uri).scheme.lower()
+
+
+def _normalize_windows_path(path: str) -> str:
+    if _WINDOWS_FILE_URI_PATH.match(path):
+        path = path[1:]
+    normalized = ntpath.normcase(ntpath.normpath(path)).replace("\\", "/")
+    return normalized if len(normalized) == 3 else normalized.rstrip("/")
 
 
 def normalize_dataset_uri(uri: str) -> str:
     """Return a comparable URI for dataset identity checks."""
+    if _WINDOWS_DRIVE_PATH.match(uri):
+        return _normalize_windows_path(uri)
     if "://" in uri:
         parsed = urlsplit(uri)
         if parsed.scheme == "file":
             path = unquote(parsed.path)
+            if _WINDOWS_FILE_URI_PATH.match(path):
+                return _normalize_windows_path(path)
             if parsed.netloc and parsed.netloc != "localhost":
                 path = f"//{parsed.netloc}{path}"
             return os.path.realpath(os.path.abspath(path)).rstrip(os.sep)
@@ -51,19 +72,40 @@ def _non_sensitive_backend_identity(
     if not storage_options:
         return None
 
-    for key in ("endpoint", "endpoint_url"):
+    endpoint_keys = (
+        "endpoint",
+        "endpoint_url",
+        "aws_endpoint",
+        "s3_endpoint",
+        "azure_endpoint",
+        "azure_storage_endpoint",
+        "oss_endpoint",
+        "tos_endpoint",
+    )
+    for key in endpoint_keys:
         value = storage_options.get(key)
         if not value:
             continue
         value = str(value)
-        if "://" in value:
-            parsed = urlsplit(value)
-            value = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
-        return f"{key}:{value}"
+        has_scheme = "://" in value
+        parsed = urlsplit(value if has_scheme else f"//{value}")
+        hostname = parsed.hostname
+        if hostname is not None:
+            if ":" in hostname:
+                hostname = f"[{hostname}]"
+            port = parsed.port
+            netloc = hostname if port is None else f"{hostname}:{port}"
+            value = urlunsplit(
+                (parsed.scheme if has_scheme else "", netloc, parsed.path, "", "")
+            )
+            if not has_scheme:
+                value = value.removeprefix("//")
+        return f"endpoint:{value}"
 
-    region = storage_options.get("region")
-    if region:
-        return f"region:{region}"
+    for key in ("account_name", "azure_storage_account_name"):
+        value = storage_options.get(key)
+        if value:
+            return f"azure_account:{value}"
     return None
 
 
@@ -85,8 +127,11 @@ def _has_reliable_identity(
         return True
 
     identity_uri = str(getattr(lance_ds, "uri", "") or "")
-    scheme = urlsplit(identity_uri).scheme.lower()
-    return scheme in {"", "file"}
+    scheme = _uri_scheme(identity_uri)
+    # S3 and GCS bucket names identify the backend without credentials. Azure
+    # container names are account-scoped, so Azure still requires an account or
+    # endpoint discriminator when a native dataset UUID is unavailable.
+    return scheme in {"", "file", "s3", "gs"}
 
 
 def dataset_identity(
@@ -227,8 +272,7 @@ class LanceDatasource(Datasource):
 
         self._lance_ds: Optional[lance.LanceDataset] = None
         self._fragments: Optional[list[lance.LanceFragment]] = None
-        self._source_version: Optional[int] = None
-        self._source_identity: Optional[str] = None
+        self._source_provenance: Optional[tuple[int, Optional[str]]] = None
 
     @property
     def lance_dataset(self) -> lance.LanceDataset:
@@ -254,30 +298,33 @@ class LanceDatasource(Datasource):
         return self._lance_ds
 
     def _pin_source_provenance(self) -> None:
-        dataset = self.lance_dataset
-        if self._source_version is None:
-            self._source_version = dataset.version
-        if self._source_identity is None:
-            self._source_identity = dataset_identity_digest(
-                dataset,
-                storage_options=self._storage_options,
+        if self._source_provenance is None:
+            dataset = self.lance_dataset
+            self._source_provenance = (
+                dataset.version,
+                dataset_identity_digest(
+                    dataset,
+                    storage_options=self._storage_options,
+                ),
             )
 
     @property
     def source_version(self) -> int:
         """Return the Lance version fixed when this datasource is first used."""
-        if self._source_version is None:
+        if self._source_provenance is None:
             self._pin_source_provenance()
-        version = self._source_version
-        assert version is not None
-        return version
+        provenance = self._source_provenance
+        assert provenance is not None
+        return provenance[0]
 
     @property
     def source_identity(self) -> Optional[str]:
         """Return the dataset identity fixed when this datasource is first used."""
-        if self._source_identity is None:
+        if self._source_provenance is None:
             self._pin_source_provenance()
-        return self._source_identity
+        provenance = self._source_provenance
+        assert provenance is not None
+        return provenance[1]
 
     def pin_source_version(self) -> None:
         """Resolve the source snapshot before Ray starts lazy execution."""
@@ -340,6 +387,24 @@ class LanceDatasource(Datasource):
         table_id = self._table_id
         base_store_params = self._base_store_params
 
+        metadata_accepts_schema = (
+            "schema" in inspect.signature(BlockMetadata.__init__).parameters
+        )
+        block_schema: Optional[pa.Schema] = None
+        if metadata_accepts_schema:
+            schema_options = self._scanner_options.copy()
+            if self._with_metadata:
+                schema_options["with_row_address"] = True
+            block_schema = self.lance_dataset.scanner(**schema_options).projected_schema
+            if self._with_metadata and "_fragid" not in block_schema.names:
+                block_schema = block_schema.append(pa.field("_fragid", pa.uint64()))
+            if not self._with_metadata:
+                block_schema = pa.schema(
+                    field
+                    for field in block_schema
+                    if field.name not in {"_rowaddr", "_fragid"}
+                )
+
         for fragments in array_split(self.fragments, parallelism):
             if len(fragments) == 0:
                 continue
@@ -353,20 +418,15 @@ class LanceDatasource(Datasource):
             num_rows = scanner.count_rows()
 
             fragment_ids = [f.metadata.id for f in fragments]
-            input_files = tuple(
+            input_files = [
                 data_file.path
                 for fragment in fragments
                 for data_file in fragment.data_files()
-            )
+            ]
 
             # Ray 2.48+ no longer has the schema argument...
-            if "schema" in inspect.signature(BlockMetadata.__init__).parameters:
-                # TODO(chengsu): Take column projection into consideration for schema.
-                block_schema = fragments[0].schema
-                if self._with_metadata:
-                    block_schema = block_schema.append(
-                        pa.field("_rowaddr", pa.uint64())
-                    ).append(pa.field("_fragid", pa.uint64()))
+            if metadata_accepts_schema:
+                assert block_schema is not None
                 metadata = BlockMetadata(
                     num_rows=num_rows,
                     schema=block_schema,  # type: ignore[call-arg]
